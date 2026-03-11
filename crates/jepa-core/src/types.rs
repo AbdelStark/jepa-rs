@@ -76,9 +76,16 @@ impl MaskSpec {
 
         // No duplicates
         let mut seen = HashSet::with_capacity(self.total_tokens);
-        for &idx in self.context_indices.iter().chain(self.target_indices.iter()) {
+        for &idx in self
+            .context_indices
+            .iter()
+            .chain(self.target_indices.iter())
+        {
             if idx >= self.total_tokens {
-                return Err(MaskError::IndexOutOfBounds { index: idx, total: self.total_tokens });
+                return Err(MaskError::IndexOutOfBounds {
+                    index: idx,
+                    total: self.total_tokens,
+                });
             }
             if !seen.insert(idx) {
                 return Err(MaskError::DuplicateIndex(idx));
@@ -133,7 +140,11 @@ impl InputShape {
     pub fn total_tokens(&self) -> usize {
         match self {
             InputShape::Image { height, width } => height * width,
-            InputShape::Video { frames, height, width } => frames * height * width,
+            InputShape::Video {
+                frames,
+                height,
+                width,
+            } => frames * height * width,
         }
     }
 }
@@ -179,7 +190,10 @@ mod tests {
             target_indices: vec![5],
             total_tokens: 3,
         };
-        assert!(matches!(mask.validate(), Err(MaskError::IndexOutOfBounds { .. })));
+        assert!(matches!(
+            mask.validate(),
+            Err(MaskError::IndexOutOfBounds { .. })
+        ));
     }
 
     #[test]
@@ -194,7 +208,22 @@ mod tests {
 
     #[test]
     fn test_input_shape_total_tokens() {
-        assert_eq!(InputShape::Image { height: 14, width: 14 }.total_tokens(), 196);
-        assert_eq!(InputShape::Video { frames: 8, height: 14, width: 14 }.total_tokens(), 1568);
+        assert_eq!(
+            InputShape::Image {
+                height: 14,
+                width: 14
+            }
+            .total_tokens(),
+            196
+        );
+        assert_eq!(
+            InputShape::Video {
+                frames: 8,
+                height: 14,
+                width: 14
+            }
+            .total_tokens(),
+            1568
+        );
     }
 }
