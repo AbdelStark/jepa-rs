@@ -15,20 +15,20 @@
 //! - [`CollapseRegularizer`] trait for preventing representational collapse
 //! - [`Ema`] for exponential moving average target encoder updates
 
+pub mod collapse;
 pub mod config;
+pub mod ema;
 pub mod encoder;
 pub mod energy;
 pub mod masking;
 pub mod predictor;
-pub mod collapse;
-pub mod ema;
 pub mod types;
 
+pub use collapse::CollapseRegularizer;
 pub use config::JepaConfig;
+pub use ema::Ema;
 pub use encoder::Encoder;
 pub use energy::EnergyFn;
 pub use masking::MaskingStrategy;
 pub use predictor::Predictor;
-pub use collapse::CollapseRegularizer;
-pub use ema::Ema;
-pub use types::{Representation, Energy, MaskSpec};
+pub use types::{Energy, MaskSpec, Representation};
