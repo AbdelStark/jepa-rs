@@ -1,0 +1,9 @@
+[package]
+name = "jepa-compat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+jepa-core = { path = "../jepa-core" }
+burn = { workspace = true }

@@ -1,0 +1,18 @@
+[package]
+name = "jepa-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Core traits and abstractions for JEPA (Joint Embedding Predictive Architecture)"
+
+[dependencies]
+burn = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+burn-ndarray = { workspace = true }
+proptest = { workspace = true }

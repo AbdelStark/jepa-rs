@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/jepa-core",
+    "crates/jepa-vision",
+    "crates/jepa-world",
+    "crates/jepa-train",
+    "crates/jepa-compat",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/AbdelStark/jepa-rs"
+authors = ["Abdel Bakhta <abdel@starkware.co>"]
+description = "JEPA primitives in Rust"
+keywords = ["jepa", "world-model", "self-supervised-learning", "machine-learning", "ai"]
+categories = ["science", "algorithms"]
+
+[workspace.dependencies]
+burn = { version = "0.16", features = ["autodiff"] }
+burn-ndarray = "0.16"
+burn-wgpu = "0.16"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+rand_chacha = "0.3"
+thiserror = "2"
+safetensors = "0.4"
+half = "2"
+ndarray = "0.16"
+log = "0.4"
+proptest = "1"
+criterion = "0.5"
