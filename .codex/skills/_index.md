@@ -1,6 +1,6 @@
 # Skill Registry
 
-Last updated: 2026-03-11
+Last updated: 2026-03-12
 
 | Skill                 | File                     | Triggers                                          | Priority |
 |-----------------------|--------------------------|---------------------------------------------------|----------|
@@ -10,7 +10,8 @@ Last updated: 2026-03-11
 | Debugging             | debugging.md             | error, bug, fix, compile, fail, panic              | Core     |
 
 ## Missing Skills (Recommended)
-- [ ] Performance & benchmarking — criterion setup, profiling numerical code
-- [ ] PyTorch compatibility — safetensors loading, weight mapping (for jepa-compat)
-- [ ] CI/CD setup — GitHub Actions for Rust workspace projects
-- [ ] Documentation — rustdoc conventions, examples in doc comments
+- [ ] Performance & benchmarking — criterion setup, profiling numerical code (core_bench.rs exists but is unpopulated)
+- [ ] PyTorch compatibility — safetensors loading, weight key mapping (for jepa-compat crate)
+- [ ] CI/CD setup — GitHub Actions for Rust workspace (no workflows exist yet)
+- [ ] Vision architecture — ViT implementation patterns, patch embedding, RoPE (for jepa-vision)
+- [ ] Documentation — rustdoc conventions, doc test patterns (6 doc tests exist as reference)
