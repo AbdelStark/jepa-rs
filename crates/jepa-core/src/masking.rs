@@ -15,6 +15,27 @@ use crate::types::{InputShape, MaskSpec};
 ///
 /// A masking strategy generates a [`MaskSpec`] that partitions input tokens
 /// into context (visible) and target (hidden) sets.
+///
+/// # Example
+///
+/// ```
+/// use jepa_core::masking::{MaskingStrategy, BlockMasking};
+/// use jepa_core::types::InputShape;
+/// use rand::SeedableRng;
+/// use rand_chacha::ChaCha8Rng;
+///
+/// let masking = BlockMasking {
+///     num_targets: 4,
+///     target_scale: (0.15, 0.2),
+///     target_aspect_ratio: (0.75, 1.5),
+/// };
+/// let shape = InputShape::Image { height: 14, width: 14 };
+/// let mut rng = ChaCha8Rng::seed_from_u64(42);
+/// let mask = masking.generate_mask(&shape, &mut rng);
+///
+/// assert!(mask.validate().is_ok());
+/// assert_eq!(mask.context_indices.len() + mask.target_indices.len(), 196);
+/// ```
 pub trait MaskingStrategy {
     /// Generate a mask for a given input shape.
     ///

@@ -9,16 +9,68 @@ use burn::tensor::{backend::Backend, Tensor};
 /// irrelevant details.
 ///
 /// Shape: `[batch_size, sequence_length, embed_dim]`
+///
+/// Per RFC-001, an optional mask tensor indicates which positions are valid,
+/// enabling variable-length sequences and masked operations.
 #[derive(Debug, Clone)]
 pub struct Representation<B: Backend> {
-    /// The embedding tensor.
+    /// The embedding tensor. Shape: `[batch, seq_len, embed_dim]`
     pub embeddings: Tensor<B, 3>,
+    /// Optional mask indicating which positions are valid.
+    /// Shape: `[batch, seq_len]`. A value of 1.0 means valid, 0.0 means padding.
+    pub mask: Option<Tensor<B, 2>>,
 }
 
 impl<B: Backend> Representation<B> {
-    /// Create a new representation from a tensor.
+    /// Create a new representation from a tensor (no mask).
     pub fn new(embeddings: Tensor<B, 3>) -> Self {
-        Self { embeddings }
+        Self {
+            embeddings,
+            mask: None,
+        }
+    }
+
+    /// Create a new representation with an explicit validity mask.
+    ///
+    /// # Arguments
+    /// * `embeddings` - The embedding tensor. Shape: `[batch, seq_len, embed_dim]`
+    /// * `mask` - Validity mask. Shape: `[batch, seq_len]`. 1.0 = valid, 0.0 = padding.
+    pub fn with_mask(embeddings: Tensor<B, 3>, mask: Tensor<B, 2>) -> Self {
+        Self {
+            embeddings,
+            mask: Some(mask),
+        }
+    }
+
+    /// Create a random representation for testing.
+    ///
+    /// Generates embeddings drawn from a standard normal distribution N(0, 1).
+    ///
+    /// # Arguments
+    /// * `shape` - `[batch, seq_len, embed_dim]`
+    /// * `device` - The device to create the tensor on
+    pub fn random(shape: [usize; 3], device: &B::Device) -> Self {
+        Self {
+            embeddings: Tensor::random(shape, burn::tensor::Distribution::Normal(0.0, 1.0), device),
+            mask: None,
+        }
+    }
+
+    /// Create a zero-filled representation for testing.
+    ///
+    /// # Arguments
+    /// * `shape` - `[batch, seq_len, embed_dim]`
+    /// * `device` - The device to create the tensor on
+    pub fn zeros(shape: [usize; 3], device: &B::Device) -> Self {
+        Self {
+            embeddings: Tensor::zeros(shape, device),
+            mask: None,
+        }
+    }
+
+    /// Returns `true` if this representation has a validity mask.
+    pub fn has_mask(&self) -> bool {
+        self.mask.is_some()
     }
 
     /// Get the batch size.
@@ -188,6 +240,7 @@ impl InputShape {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::tensor::ElementConversion;
     use burn_ndarray::NdArray;
 
     type TestBackend = NdArray<f32>;
@@ -239,6 +292,50 @@ mod tests {
         let repr = Representation::new(tensor);
         let gathered = repr.gather(&[2]);
         assert_eq!(gathered.seq_len(), 1);
+    }
+
+    #[test]
+    fn test_representation_with_mask() {
+        let embeddings = Tensor::<TestBackend, 3>::ones([2, 4, 8], &device());
+        let mask = Tensor::<TestBackend, 2>::ones([2, 4], &device());
+        let repr = Representation::with_mask(embeddings, mask);
+        assert!(repr.has_mask());
+        assert_eq!(repr.batch_size(), 2);
+        assert_eq!(repr.seq_len(), 4);
+        assert_eq!(repr.embed_dim(), 8);
+    }
+
+    #[test]
+    fn test_representation_new_has_no_mask() {
+        let repr = Representation::new(Tensor::<TestBackend, 3>::ones([1, 2, 4], &device()));
+        assert!(!repr.has_mask());
+    }
+
+    #[test]
+    fn test_representation_random() {
+        let repr = Representation::<TestBackend>::random([2, 8, 16], &device());
+        assert_eq!(repr.batch_size(), 2);
+        assert_eq!(repr.seq_len(), 8);
+        assert_eq!(repr.embed_dim(), 16);
+        assert!(!repr.has_mask());
+        // Should have non-zero values (random)
+        let sum: f32 = repr.embeddings.abs().sum().into_scalar().elem();
+        assert!(sum > 0.0, "random representation should have non-zero values");
+    }
+
+    #[test]
+    fn test_representation_zeros() {
+        let repr = Representation::<TestBackend>::zeros([1, 4, 8], &device());
+        assert_eq!(repr.batch_size(), 1);
+        let sum: f32 = repr.embeddings.abs().sum().into_scalar().elem();
+        assert!(sum < 1e-6, "zeros representation should be all zeros");
+    }
+
+    #[test]
+    fn test_representation_gather_preserves_no_mask() {
+        let repr = Representation::new(Tensor::<TestBackend, 3>::ones([1, 4, 8], &device()));
+        let gathered = repr.gather(&[0, 2]);
+        assert!(!gathered.has_mask());
     }
 
     #[test]

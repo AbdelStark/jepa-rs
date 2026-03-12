@@ -25,7 +25,7 @@ pub mod predictor;
 pub mod types;
 
 pub use collapse::{BarlowTwins, CollapseRegularizer};
-pub use config::JepaConfig;
+pub use config::{JepaConfig, JepaConfigBuilder};
 pub use ema::Ema;
 pub use encoder::Encoder;
 pub use energy::EnergyFn;

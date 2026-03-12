@@ -18,6 +18,28 @@ use burn::tensor::Tensor;
 ///
 /// Higher momentum means the target changes more slowly,
 /// providing a more stable prediction target.
+///
+/// # Example
+///
+/// ```
+/// use jepa_core::ema::Ema;
+/// use burn::tensor::Tensor;
+/// use burn_ndarray::NdArray;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// // Constant momentum
+/// let ema = Ema::new(0.996);
+/// let target: Tensor<B, 1> = Tensor::zeros([8], &device);
+/// let online: Tensor<B, 1> = Tensor::ones([8], &device);
+/// let updated = ema.update_tensor(target, &online, 0);
+///
+/// // With cosine schedule (momentum increases over training)
+/// let ema_scheduled = Ema::with_cosine_schedule(0.996, 10000);
+/// assert!((ema_scheduled.get_momentum(0) - 0.996).abs() < 1e-6);
+/// assert!((ema_scheduled.get_momentum(9999) - 1.0).abs() < 1e-3);
+/// ```
 pub struct Ema {
     /// Base momentum parameter. Typical values: 0.996 to 0.9999.
     pub momentum: f64,
