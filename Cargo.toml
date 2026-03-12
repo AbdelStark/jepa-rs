@@ -6,6 +6,7 @@ members = [
     "crates/jepa-world",
     "crates/jepa-train",
     "crates/jepa-compat",
+    "crates/jepa",
 ]
 
 [workspace.package]
