@@ -95,6 +95,7 @@ impl LrSchedule for ConstantSchedule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn test_warmup_cosine_at_start() {
@@ -168,5 +169,49 @@ mod tests {
         assert_eq!(schedule.get_lr(0), 0.01);
         assert_eq!(schedule.get_lr(1000), 0.01);
         assert_eq!(schedule.get_lr(999999), 0.01);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_warmup_cosine_lr_always_non_negative(
+            step in 0usize..20000,
+            peak_lr in 1e-5f64..1e-2,
+            warmup in 100usize..5000,
+            total in 5000usize..20000,
+        ) {
+            let schedule = WarmupCosineSchedule::new(peak_lr, warmup.min(total), total);
+            let lr = schedule.get_lr(step);
+            prop_assert!(lr >= 0.0, "LR was negative: {lr} at step {step}");
+            prop_assert!(lr.is_finite(), "LR was not finite at step {step}");
+        }
+
+        #[test]
+        fn prop_warmup_cosine_lr_bounded_by_peak(
+            step in 0usize..20000,
+            peak_lr in 1e-5f64..1e-2,
+        ) {
+            let schedule = WarmupCosineSchedule::new(peak_lr, 1000, 10000);
+            let lr = schedule.get_lr(step);
+            prop_assert!(
+                lr <= peak_lr + 1e-12,
+                "LR {lr} exceeded peak {peak_lr} at step {step}"
+            );
+        }
+
+        #[test]
+        fn prop_warmup_is_monotonically_increasing(
+            warmup_steps in 10usize..500,
+        ) {
+            let schedule = WarmupCosineSchedule::new(1e-3, warmup_steps, warmup_steps * 10);
+            let mut prev = schedule.get_lr(0);
+            for step in 1..warmup_steps {
+                let curr = schedule.get_lr(step);
+                prop_assert!(
+                    curr >= prev - 1e-12,
+                    "LR not monotonic during warmup at step {step}: {prev} -> {curr}"
+                );
+                prev = curr;
+            }
+        }
     }
 }

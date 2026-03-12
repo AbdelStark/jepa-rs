@@ -2511,6 +2511,7 @@ dependencies = [
  "burn-ndarray",
  "jepa-core",
  "log",
+ "proptest",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -2537,6 +2538,7 @@ dependencies = [
  "burn",
  "burn-ndarray",
  "jepa-core",
+ "proptest",
  "thiserror 2.0.18",
 ]
 

@@ -216,4 +216,43 @@ mod tests {
         let out = rope.forward(x);
         assert_eq!(out.dims(), [1, 4, 8]);
     }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn prop_rope_preserves_shape(
+            grid_h in 2usize..5,
+            grid_w in 2usize..5,
+            embed_dim in proptest::sample::select(vec![8usize, 16, 32]),
+        ) {
+            let config = RotaryPositionEncoding2DConfig::new(embed_dim, grid_h, grid_w);
+            let rope = config.init::<TestBackend>(&device());
+            let seq_len = grid_h * grid_w;
+            let x: Tensor<TestBackend, 3> = Tensor::ones([1, seq_len, embed_dim], &device());
+            let out = rope.forward(x);
+            prop_assert_eq!(out.dims(), [1, seq_len, embed_dim]);
+        }
+
+        #[test]
+        fn prop_rope_preserves_norm(
+            grid_h in 2usize..4,
+            grid_w in 2usize..4,
+        ) {
+            let embed_dim = 16;
+            let config = RotaryPositionEncoding2DConfig::new(embed_dim, grid_h, grid_w);
+            let rope = config.init::<TestBackend>(&device());
+            let seq_len = grid_h * grid_w;
+            let x: Tensor<TestBackend, 3> = Tensor::random(
+                [1, seq_len, embed_dim],
+                burn::tensor::Distribution::Normal(0.0, 1.0),
+                &device(),
+            );
+            let x_norm: f32 = (x.clone() * x.clone()).sum().into_scalar().elem();
+            let out = rope.forward(x);
+            let out_norm: f32 = (out.clone() * out.clone()).sum().into_scalar().elem();
+            let ratio = out_norm / x_norm;
+            prop_assert!((ratio - 1.0).abs() < 0.01, "RoPE norm ratio: {}", ratio);
+        }
+    }
 }
