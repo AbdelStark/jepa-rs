@@ -1,6 +1,6 @@
 # jepa-rs
 
-Rust workspace for JEPA building blocks on top of `burn` 0.16.
+Rust workspace for JEPA building blocks on top of `burn` 0.20.1.
 
 [Specification](./SPECIFICATION.md) | [Architecture](./ARCHITECTURE.md) | [Gap Analysis](./PRODUCTION_GAP.md) | [Roadmap](./ROADMAP.md) | [Work Packages](./WORK_PACKAGES.md) | [Contributing](./CONTRIBUTING.md) | [Changelog](./CHANGELOG.md)
 
