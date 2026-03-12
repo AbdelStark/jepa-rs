@@ -3,7 +3,15 @@ name = "jepa-train"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Training loop utilities for JEPA models"
 
 [dependencies]
 jepa-core = { path = "../jepa-core" }
 burn = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+burn-ndarray = { workspace = true }
+serde_json = { workspace = true }

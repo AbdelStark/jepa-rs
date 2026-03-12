@@ -3,7 +3,16 @@ name = "jepa-vision"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Vision-specific JEPA implementations (ViT encoder, patch embedding, I-JEPA)"
 
 [dependencies]
 jepa-core = { path = "../jepa-core" }
 burn = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+burn-ndarray = { workspace = true }
+proptest = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
