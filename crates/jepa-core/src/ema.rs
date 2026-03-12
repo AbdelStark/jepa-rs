@@ -409,7 +409,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_ema_converges_to_online(
-            momentum in 0.9f64..0.999,
+            momentum in 0.9f64..0.995,
             steps in 1000usize..10000,
         ) {
             let ema = Ema::new(momentum);

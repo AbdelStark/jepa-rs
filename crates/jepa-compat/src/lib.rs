@@ -10,4 +10,5 @@
 //! - [`keymap`] — Map PyTorch state_dict keys to burn module paths
 
 pub mod keymap;
+pub mod onnx;
 pub mod safetensors;
