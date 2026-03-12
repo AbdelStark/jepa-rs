@@ -45,10 +45,11 @@ impl ActionConditionedPredictor<B> for NavigationDynamics {
 
         // For dims beyond action_dim, state stays the same
         if dim < embed_dim {
-            let unchanged = current_state
-                .embeddings
-                .clone()
-                .slice([0..batch, 0..seq_len, dim..embed_dim]);
+            let unchanged =
+                current_state
+                    .embeddings
+                    .clone()
+                    .slice([0..batch, 0..seq_len, dim..embed_dim]);
             let changed = current_state
                 .embeddings
                 .clone()
@@ -107,7 +108,13 @@ fn main() {
     let trajectory = world_model.rollout(&start, &perfect_plan);
     println!("Rollout ({} states):", trajectory.len());
     for (i, state) in trajectory.iter().enumerate() {
-        let vals: Vec<f32> = state.embeddings.clone().reshape([embed_dim]).into_data().to_vec().unwrap();
+        let vals: Vec<f32> = state
+            .embeddings
+            .clone()
+            .reshape([embed_dim])
+            .into_data()
+            .to_vec()
+            .unwrap();
         println!(
             "  t={}: [{:.2}, {:.2}, {:.2}, {:.2}]",
             i, vals[0], vals[1], vals[2], vals[3]
@@ -148,7 +155,13 @@ fn main() {
     println!("Best plan (cost={:.6}):", result.cost);
     let planned_trajectory = world_model.rollout(&start, &result.actions);
     for (i, state) in planned_trajectory.iter().enumerate() {
-        let vals: Vec<f32> = state.embeddings.clone().reshape([embed_dim]).into_data().to_vec().unwrap();
+        let vals: Vec<f32> = state
+            .embeddings
+            .clone()
+            .reshape([embed_dim])
+            .into_data()
+            .to_vec()
+            .unwrap();
         println!(
             "  t={}: [{:.2}, {:.2}, {:.2}, {:.2}]",
             i, vals[0], vals[1], vals[2], vals[3]

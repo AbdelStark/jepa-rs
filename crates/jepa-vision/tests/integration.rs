@@ -312,8 +312,14 @@ fn test_full_ijepa_train_step_with_real_vit() {
     // Step 5: Compute energy (prediction loss)
     let energy = jepa_core::energy::L2Energy.compute(&predicted, &target_gathered);
     let energy_val: f32 = energy.value.into_scalar().elem();
-    assert!(energy_val.is_finite(), "energy should be finite: {energy_val}");
-    assert!(energy_val >= 0.0, "L2 energy should be non-negative: {energy_val}");
+    assert!(
+        energy_val.is_finite(),
+        "energy should be finite: {energy_val}"
+    );
+    assert!(
+        energy_val >= 0.0,
+        "L2 energy should be non-negative: {energy_val}"
+    );
 
     // Step 6: Compute collapse regularization (VICReg)
     let embed_dim = predicted.embed_dim();

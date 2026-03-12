@@ -320,7 +320,10 @@ mod tests {
         assert!(!repr.has_mask());
         // Should have non-zero values (random)
         let sum: f32 = repr.embeddings.abs().sum().into_scalar().elem();
-        assert!(sum > 0.0, "random representation should have non-zero values");
+        assert!(
+            sum > 0.0,
+            "random representation should have non-zero values"
+        );
     }
 
     #[test]
