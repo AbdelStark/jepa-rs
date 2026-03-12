@@ -15,8 +15,8 @@ use burn::prelude::*;
 use burn::tensor::backend::Backend;
 use burn::tensor::module::embedding;
 
-use jepa_core::types::Representation;
-use jepa_core::Predictor;
+use jepa_core::types::{Energy, MaskSpec, Representation};
+use jepa_core::{CollapseRegularizer, EnergyFn, Predictor};
 
 /// Configuration for the transformer predictor.
 ///
@@ -316,6 +316,111 @@ pub struct IJepa<B: Backend> {
     pub predictor: TransformerPredictor<B>,
 }
 
+/// Output of a strict masked I-JEPA forward step.
+///
+/// Unlike the generic trainer helper, the context representation is produced
+/// from visible tokens only, so hidden target patches never participate in
+/// context self-attention.
+#[derive(Debug)]
+pub struct StrictIJepaForwardOutput<B: Backend> {
+    /// Prediction energy (main loss signal). Shape: `[1]`
+    pub energy: Energy<B>,
+    /// Collapse prevention regularization loss. Shape: `[1]`
+    pub regularization: Tensor<B, 1>,
+    /// Total loss (energy + weighted regularization). Shape: `[1]`
+    pub total_loss: Tensor<B, 1>,
+    /// The mask used for this step.
+    pub mask: MaskSpec,
+    /// Strictly encoded context representation.
+    pub context: Representation<B>,
+    /// Predicted target representations.
+    pub predicted: Representation<B>,
+    /// Actual target representations from the target encoder.
+    pub target: Representation<B>,
+}
+
+impl<B: Backend> IJepa<B> {
+    /// Encode only visible context patches before self-attention runs.
+    pub fn encode_context_strict(
+        &self,
+        images: &Tensor<B, 4>,
+        context_indices: &[usize],
+    ) -> Representation<B> {
+        self.context_encoder
+            .forward_visible_tokens(images, context_indices)
+    }
+
+    /// Execute a strict masked I-JEPA forward step.
+    ///
+    /// The target encoder still sees the full input, but the context encoder is
+    /// restricted to visible patches before any attention mixing occurs.
+    pub fn forward_step_strict<EF, CR>(
+        &self,
+        images: &Tensor<B, 4>,
+        mask: MaskSpec,
+        energy_fn: &EF,
+        regularizer: &CR,
+        reg_weight: f64,
+    ) -> StrictIJepaForwardOutput<B>
+    where
+        EF: EnergyFn<B>,
+        CR: CollapseRegularizer<B>,
+    {
+        mask.validate()
+            .expect("strict I-JEPA forward step requires a valid mask");
+
+        let context = self.encode_context_strict(images, &mask.context_indices);
+        let target_full = self.target_encoder.forward(images);
+        let target = target_full.gather(&mask.target_indices);
+
+        let batch = images.dims()[0];
+        let target_positions =
+            target_positions_tensor::<B>(&mask.target_indices, batch, &images.device());
+        let predicted = self.predictor.predict(&context, &target_positions, None);
+
+        let num_targets = target.seq_len();
+        let embed_dim = target.embed_dim();
+        let pred_flat = predicted
+            .embeddings
+            .clone()
+            .reshape([batch * num_targets, embed_dim]);
+        let target_flat = target
+            .embeddings
+            .clone()
+            .reshape([batch * num_targets, embed_dim]);
+
+        let energy = energy_fn.compute(&predicted, &target);
+        let regularization = regularizer.loss(&pred_flat, &target_flat);
+        let total_loss = energy.value.clone() + regularization.clone() * reg_weight;
+
+        StrictIJepaForwardOutput {
+            energy,
+            regularization,
+            total_loss,
+            mask,
+            context,
+            predicted,
+            target,
+        }
+    }
+}
+
+pub(crate) fn target_positions_tensor<B: Backend>(
+    indices: &[usize],
+    batch: usize,
+    device: &B::Device,
+) -> Tensor<B, 2> {
+    let mut data = Vec::with_capacity(batch * indices.len());
+    for _ in 0..batch {
+        data.extend(indices.iter().map(|&index| index as f32));
+    }
+
+    Tensor::from_floats(
+        burn::tensor::TensorData::new(data, [batch, indices.len()]),
+        device,
+    )
+}
+
 /// Configuration for the I-JEPA model.
 #[derive(Debug, Clone)]
 pub struct IJepaConfig {
@@ -373,6 +478,38 @@ mod tests {
 
         Tensor::from_floats(
             burn::tensor::TensorData::new(data, [batch, indices.len()]),
+            &device(),
+        )
+    }
+
+    fn fixed_image_mask() -> MaskSpec {
+        MaskSpec {
+            context_indices: vec![0, 1, 4, 5, 10, 11, 14, 15],
+            target_indices: vec![2, 3, 6, 7, 8, 9, 12, 13],
+            total_tokens: 16,
+        }
+    }
+
+    fn image_with_hidden_patch_value(mask: &MaskSpec, hidden_value: f32) -> Tensor<TestBackend, 4> {
+        let image_size = 8usize;
+        let patch_size = 2usize;
+        let mut data = vec![1.0f32; image_size * image_size];
+
+        for &index in &mask.target_indices {
+            let patch_row = index / 4;
+            let patch_col = index % 4;
+            let row_start = patch_row * patch_size;
+            let col_start = patch_col * patch_size;
+
+            for row in row_start..row_start + patch_size {
+                for col in col_start..col_start + patch_size {
+                    data[row * image_size + col] = hidden_value;
+                }
+            }
+        }
+
+        Tensor::from_floats(
+            burn::tensor::TensorData::new(data, [1, 1, image_size, image_size]),
             &device(),
         )
     }
@@ -494,6 +631,75 @@ mod tests {
         let config = IJepaConfig::tiny_test();
         assert_eq!(config.encoder.embed_dim, 32);
         assert_eq!(config.predictor.predictor_embed_dim, 16);
+    }
+
+    #[test]
+    fn test_strict_context_encoding_ignores_hidden_patches() {
+        let config = IJepaConfig::tiny_test();
+        let model = config.init::<TestBackend>(&device());
+        let mask = fixed_image_mask();
+
+        let hidden_low = image_with_hidden_patch_value(&mask, 0.0);
+        let hidden_high = image_with_hidden_patch_value(&mask, 1_000.0);
+
+        let strict_low = model.encode_context_strict(&hidden_low, &mask.context_indices);
+        let strict_high = model.encode_context_strict(&hidden_high, &mask.context_indices);
+
+        let diff: f32 = (strict_low.embeddings - strict_high.embeddings)
+            .abs()
+            .sum()
+            .into_scalar()
+            .elem();
+        assert!(
+            diff < 1e-5,
+            "strict masked context should ignore hidden patches, diff={diff}"
+        );
+    }
+
+    #[test]
+    fn test_full_encoder_context_slice_leaks_hidden_patches() {
+        let config = crate::vit::VitConfig::tiny_test();
+        let encoder = config.init::<TestBackend>(&device());
+        let mask = fixed_image_mask();
+
+        let hidden_low = image_with_hidden_patch_value(&mask, 0.0);
+        let hidden_high = image_with_hidden_patch_value(&mask, 1_000.0);
+
+        let approx_low = encoder.forward(&hidden_low).gather(&mask.context_indices);
+        let approx_high = encoder.forward(&hidden_high).gather(&mask.context_indices);
+
+        let diff: f32 = (approx_low.embeddings - approx_high.embeddings)
+            .abs()
+            .sum()
+            .into_scalar()
+            .elem();
+        assert!(
+            diff > 1e-3,
+            "post-encoder gather path should leak hidden patches, diff={diff}"
+        );
+    }
+
+    #[test]
+    fn test_strict_forward_step_runs_end_to_end() {
+        let config = IJepaConfig::tiny_test();
+        let model = config.init::<TestBackend>(&device());
+        let mask = fixed_image_mask();
+        let images = image_with_hidden_patch_value(&mask, 3.0);
+        let energy_fn = jepa_core::energy::L2Energy;
+        let regularizer = jepa_core::collapse::VICReg::default();
+
+        let output =
+            model.forward_step_strict(&images, mask.clone(), &energy_fn, &regularizer, 1.0);
+
+        assert_eq!(output.context.seq_len(), mask.context_indices.len());
+        assert_eq!(output.predicted.seq_len(), mask.target_indices.len());
+        assert_eq!(output.target.seq_len(), mask.target_indices.len());
+
+        let total_loss: f32 = output.total_loss.into_scalar().elem();
+        assert!(
+            total_loss.is_finite(),
+            "strict forward loss should be finite"
+        );
     }
 
     // ======================================================================

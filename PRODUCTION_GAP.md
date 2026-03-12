@@ -25,27 +25,27 @@ Current strengths:
 
 - workspace builds cleanly
 - unit, integration, property, doc, clippy, and rustdoc checks pass locally
-- safetensors checkpoint loading is usable
+- safetensors and ONNX checkpoint inspection/loading are usable
+- strict image and video masked forward paths have regression coverage
+- coverage, fuzzing, and benchmark smoke checks are part of the verification surface
 - core crate boundaries are already reasonably clear
 
 Current blockers:
 
-- strict masked-encoder semantics are incomplete
 - differential parity is unproven
-- ONNX loading is still a stub
-- some runtime misuse still resolves as panics instead of typed failures
-- quality gates stop short of coverage, fuzzing, and benchmark enforcement
 - release engineering and public package readiness are incomplete
+- reference parity is still fixture-driven rather than mandatory in CI
+- full ONNX runtime execution is still out of scope
 
 ## Gap Register
 
 | ID | Gap | Severity | Why It Matters | Affected Areas | Target State |
 |----|-----|----------|----------------|----------------|--------------|
-| G-001 | Strict JEPA masking semantics are incomplete | P0 | Hidden tokens can still influence encoder attention in the generic training helper, which makes training behavior semantically weaker than the intended algorithm | `jepa-train`, `jepa-vision`, possibly `jepa-core` | Context encoders operate on visible tokens only before attention; no-leakage tests pass for image and video paths |
+| G-001 | Generic JEPA orchestration remains approximate | P0 | Hidden tokens can still influence encoder attention in the generic training helper, even though strict image and video paths now exist | `jepa-train`, `jepa-vision` | Strict modality-specific paths exist and the generic helper is clearly documented as approximate |
 | G-002 | Reference parity is not proven | P0 | A large local suite is not enough for numerical ML code; without differential tests, silent drift can ship | `jepa-core`, `jepa-vision`, `jepa-train`, `specs` | Differential tests run against at least one canonical Python JEPA implementation in CI |
 | G-003 | Runtime validation is inconsistent across public APIs | P1 | Panic-based behavior is acceptable for invariant violations, not for ordinary runtime misuse by library callers | `jepa-world`, `jepa-vision`, `jepa-train` | Fallible or clearly documented APIs exist for user-triggerable failure modes |
-| G-004 | ONNX support is an adapter stub | P1 | The public module exists but does not actually parse or load models, which is fine for alpha but not for a production-grade interoperability story | `jepa-compat` | ONNX model info extraction and weight loading work against real models |
-| G-005 | Quality gates stop short of production-grade assurance | P1 | There is no enforced coverage target, no fuzz automation, and no benchmark regression gate | workspace, `.github` | CI enforces a stronger verification surface including fuzz and performance checks |
+| G-004 | ONNX runtime execution is narrower than the adapter surface | P1 | Metadata and initializer loading now work, but ONNX runtime execution is still outside the supported scope | `jepa-compat` | ONNX model info extraction and weight loading work against real models, with runtime scope documented explicitly |
+| G-005 | Quality gates need continuous enforcement discipline | P1 | Coverage, fuzz, and benchmark checks exist now, but they only help if maintained as release blockers | workspace, `.github` | CI enforces a stronger verification surface including fuzz and performance checks |
 | G-006 | Release readiness is incomplete | P1 | External users still lack crates.io releases, API-level stability messaging, compatibility guarantees, and migration discipline | workspace docs, manifests, release process | Crates are publishable with clear versioning, changelog discipline, and contributor guidance |
 | G-007 | Operational and debugging guidance is thin | P2 | New contributors and downstream users still need to infer too much from source code | README, architecture docs, examples | Runbooks, examples, limitations, and support expectations are documented explicitly |
 | G-008 | Performance validation is mostly anecdotal | P2 | The code may be fast enough, but there are no budgets or regression policies for hot paths | `benches`, CI | Core training, masking, and planning paths have benchmark baselines and regression detection |
@@ -58,7 +58,7 @@ The work is not independent. The correct order is:
 2. G-002 differential parity on top of the corrected semantics
 3. G-003 runtime validation cleanup alongside G-002
 4. G-005 quality gates once parity and fuzz targets exist
-5. G-004 ONNX runtime integration in parallel once dependency approval is granted
+5. G-004 ONNX scope expansion in parallel once a stronger runtime story is justified
 6. G-006 release readiness after the library is semantically correct and verified
 7. G-007 and G-008 continuously, but finalized near release candidate
 

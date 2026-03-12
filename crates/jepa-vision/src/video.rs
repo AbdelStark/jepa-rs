@@ -14,10 +14,10 @@
 
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;
-use burn::tensor::backend::Backend;
+use burn::tensor::{backend::Backend, Int, TensorData};
 
-use jepa_core::types::Representation;
-use jepa_core::Encoder;
+use jepa_core::types::{Energy, MaskSpec, Representation};
+use jepa_core::{CollapseRegularizer, Encoder, EnergyFn, Predictor};
 
 /// Configuration for a V-JEPA video encoder.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -134,6 +134,25 @@ pub struct VitVideoEncoder<B: Backend> {
 }
 
 impl<B: Backend> VitVideoEncoder<B> {
+    fn positioned_tubelet_tokens(&self, video: &Tensor<B, 5>) -> Tensor<B, 3> {
+        // 1. Tubelet embedding
+        let x = self.tubelet_embed.forward(video.clone());
+
+        // 2. Apply 3D RoPE before masking so surviving tubelets keep their
+        // original spatiotemporal coordinates.
+        self.positional_encoding.forward(x)
+    }
+
+    fn encode_positioned_tokens(&self, mut x: Tensor<B, 3>) -> Representation<B> {
+        for block in &self.blocks {
+            x = block.forward(x);
+        }
+
+        x = self.norm.forward(x);
+
+        Representation::new(x)
+    }
+
     /// Forward pass: video → representation.
     ///
     /// # Arguments
@@ -142,22 +161,35 @@ impl<B: Backend> VitVideoEncoder<B> {
     /// # Returns
     /// Tubelet-level representations. Shape: `[batch, num_tubelets, embed_dim]`
     pub fn forward(&self, video: &Tensor<B, 5>) -> Representation<B> {
-        // 1. Tubelet embedding
-        let mut x = self.tubelet_embed.forward(video.clone());
-
-        // 2. Apply 3D RoPE
-        x = self.positional_encoding.forward(x);
-
-        // 3. Transformer blocks
-        for block in &self.blocks {
-            x = block.forward(x);
-        }
-
-        // 4. Layer norm
-        x = self.norm.forward(x);
-
-        Representation::new(x)
+        let x = self.positioned_tubelet_tokens(video);
+        self.encode_positioned_tokens(x)
     }
+
+    /// Encode only the visible tubelets for strict JEPA context encoding.
+    pub fn forward_visible_tokens(
+        &self,
+        video: &Tensor<B, 5>,
+        visible_indices: &[usize],
+    ) -> Representation<B> {
+        let x = self.positioned_tubelet_tokens(video);
+        let x = gather_token_sequence(x, visible_indices);
+        self.encode_positioned_tokens(x)
+    }
+}
+
+fn gather_token_sequence<B: Backend>(tokens: Tensor<B, 3>, indices: &[usize]) -> Tensor<B, 3> {
+    let [batch, _seq_len, embed_dim] = tokens.dims();
+    let device = tokens.device();
+
+    if indices.is_empty() {
+        return Tensor::zeros([batch, 0, embed_dim], &device);
+    }
+
+    let index_data: Vec<i64> = indices.iter().map(|&index| index as i64).collect();
+    let index_tensor =
+        Tensor::<B, 1, Int>::from_data(TensorData::new(index_data, [indices.len()]), &device);
+
+    tokens.select(1, index_tensor)
 }
 
 impl<B: Backend> Encoder<B> for VitVideoEncoder<B> {
@@ -536,6 +568,91 @@ pub struct VJepa<B: Backend> {
     pub predictor: crate::image::TransformerPredictor<B>,
 }
 
+/// Output of a strict masked V-JEPA forward step.
+#[derive(Debug)]
+pub struct StrictVJepaForwardOutput<B: Backend> {
+    /// Prediction energy (main loss signal). Shape: `[1]`
+    pub energy: Energy<B>,
+    /// Collapse prevention regularization loss. Shape: `[1]`
+    pub regularization: Tensor<B, 1>,
+    /// Total loss (energy + weighted regularization). Shape: `[1]`
+    pub total_loss: Tensor<B, 1>,
+    /// The mask used for this step.
+    pub mask: MaskSpec,
+    /// Strictly encoded context representation.
+    pub context: Representation<B>,
+    /// Predicted target representations.
+    pub predicted: Representation<B>,
+    /// Actual target representations from the target encoder.
+    pub target: Representation<B>,
+}
+
+impl<B: Backend> VJepa<B> {
+    /// Encode only the visible tubelets before context self-attention runs.
+    pub fn encode_context_strict(
+        &self,
+        video: &Tensor<B, 5>,
+        context_indices: &[usize],
+    ) -> Representation<B> {
+        self.context_encoder
+            .forward_visible_tokens(video, context_indices)
+    }
+
+    /// Execute a strict masked V-JEPA forward step.
+    pub fn forward_step_strict<EF, CR>(
+        &self,
+        video: &Tensor<B, 5>,
+        mask: MaskSpec,
+        energy_fn: &EF,
+        regularizer: &CR,
+        reg_weight: f64,
+    ) -> StrictVJepaForwardOutput<B>
+    where
+        EF: EnergyFn<B>,
+        CR: CollapseRegularizer<B>,
+    {
+        mask.validate()
+            .expect("strict V-JEPA forward step requires a valid mask");
+
+        let context = self.encode_context_strict(video, &mask.context_indices);
+        let target_full = self.target_encoder.forward(video);
+        let target = target_full.gather(&mask.target_indices);
+
+        let batch = video.dims()[0];
+        let target_positions = crate::image::target_positions_tensor::<B>(
+            &mask.target_indices,
+            batch,
+            &video.device(),
+        );
+        let predicted = self.predictor.predict(&context, &target_positions, None);
+
+        let num_targets = target.seq_len();
+        let embed_dim = target.embed_dim();
+        let pred_flat = predicted
+            .embeddings
+            .clone()
+            .reshape([batch * num_targets, embed_dim]);
+        let target_flat = target
+            .embeddings
+            .clone()
+            .reshape([batch * num_targets, embed_dim]);
+
+        let energy = energy_fn.compute(&predicted, &target);
+        let regularization = regularizer.loss(&pred_flat, &target_flat);
+        let total_loss = energy.value.clone() + regularization.clone() * reg_weight;
+
+        StrictVJepaForwardOutput {
+            energy,
+            regularization,
+            total_loss,
+            mask,
+            context,
+            predicted,
+            target,
+        }
+    }
+}
+
 /// Configuration for the V-JEPA model.
 #[derive(Debug, Clone)]
 pub struct VJepaConfig {
@@ -582,6 +699,48 @@ mod tests {
 
     fn device() -> burn_ndarray::NdArrayDevice {
         burn_ndarray::NdArrayDevice::Cpu
+    }
+
+    fn fixed_video_mask() -> MaskSpec {
+        MaskSpec {
+            context_indices: (0..16).collect(),
+            target_indices: (16..32).collect(),
+            total_tokens: 32,
+        }
+    }
+
+    fn video_with_hidden_tubelet_value(
+        mask: &MaskSpec,
+        hidden_value: f32,
+    ) -> Tensor<TestBackend, 5> {
+        let frames = 4usize;
+        let height = 8usize;
+        let width = 8usize;
+        let mut data = vec![1.0f32; frames * height * width];
+
+        for &index in &mask.target_indices {
+            let temporal_block = index / 16;
+            let spatial_index = index % 16;
+            let spatial_row = spatial_index / 4;
+            let spatial_col = spatial_index % 4;
+
+            let frame_start = temporal_block * 2;
+            let row_start = spatial_row * 2;
+            let col_start = spatial_col * 2;
+
+            for frame in frame_start..frame_start + 2 {
+                for row in row_start..row_start + 2 {
+                    for col in col_start..col_start + 2 {
+                        data[(frame * height + row) * width + col] = hidden_value;
+                    }
+                }
+            }
+        }
+
+        Tensor::from_floats(
+            burn::tensor::TensorData::new(data, [1, 1, frames, height, width]),
+            &device(),
+        )
     }
 
     #[test]
@@ -831,6 +990,74 @@ mod tests {
 
         assert_eq!(model.context_encoder.embed_dim, 32);
         assert_eq!(model.target_encoder.embed_dim, 32);
+    }
+
+    #[test]
+    fn test_strict_video_context_encoding_ignores_hidden_tubelets() {
+        let config = VJepaConfig::tiny_test();
+        let model = config.init::<TestBackend>(&device());
+        let mask = fixed_video_mask();
+
+        let hidden_low = video_with_hidden_tubelet_value(&mask, 0.0);
+        let hidden_high = video_with_hidden_tubelet_value(&mask, 1_000.0);
+
+        let strict_low = model.encode_context_strict(&hidden_low, &mask.context_indices);
+        let strict_high = model.encode_context_strict(&hidden_high, &mask.context_indices);
+
+        let diff: f32 = (strict_low.embeddings - strict_high.embeddings)
+            .abs()
+            .sum()
+            .into_scalar()
+            .elem();
+        assert!(
+            diff < 1e-5,
+            "strict masked video context should ignore hidden tubelets, diff={diff}"
+        );
+    }
+
+    #[test]
+    fn test_full_video_encoder_context_slice_leaks_hidden_tubelets() {
+        let config = VitVideoConfig::tiny_test();
+        let encoder = config.init::<TestBackend>(&device());
+        let mask = fixed_video_mask();
+
+        let hidden_low = video_with_hidden_tubelet_value(&mask, 0.0);
+        let hidden_high = video_with_hidden_tubelet_value(&mask, 1_000.0);
+
+        let approx_low = encoder.forward(&hidden_low).gather(&mask.context_indices);
+        let approx_high = encoder.forward(&hidden_high).gather(&mask.context_indices);
+
+        let diff: f32 = (approx_low.embeddings - approx_high.embeddings)
+            .abs()
+            .sum()
+            .into_scalar()
+            .elem();
+        assert!(
+            diff > 1e-3,
+            "post-encoder gather path should leak hidden tubelets, diff={diff}"
+        );
+    }
+
+    #[test]
+    fn test_strict_video_forward_step_runs_end_to_end() {
+        let config = VJepaConfig::tiny_test();
+        let model = config.init::<TestBackend>(&device());
+        let mask = fixed_video_mask();
+        let video = video_with_hidden_tubelet_value(&mask, 5.0);
+        let energy_fn = jepa_core::energy::L2Energy;
+        let regularizer = jepa_core::collapse::VICReg::default();
+
+        let output = model.forward_step_strict(&video, mask.clone(), &energy_fn, &regularizer, 1.0);
+
+        assert_eq!(output.context.seq_len(), mask.context_indices.len());
+        assert_eq!(output.predicted.seq_len(), mask.target_indices.len());
+        assert_eq!(output.target.seq_len(), mask.target_indices.len());
+
+        let total_loss: f32 = output.total_loss.into_scalar().elem();
+        assert!(
+            total_loss.is_finite(),
+            "strict video forward loss should be finite"
+        );
     }
 
     /// BDD: "V-JEPA full pipeline with spatiotemporal masking"

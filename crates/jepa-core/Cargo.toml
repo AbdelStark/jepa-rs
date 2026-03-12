@@ -2,10 +2,16 @@
 name = "jepa-core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Core traits and abstractions for JEPA (Joint Embedding Predictive Architecture)"
+readme = "../../README.md"
+documentation = "https://docs.rs/jepa-core"
 
 [dependencies]
 burn = { workspace = true }

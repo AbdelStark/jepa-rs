@@ -13,7 +13,7 @@
 
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;
-use burn::tensor::backend::Backend;
+use burn::tensor::{backend::Backend, Int, TensorData};
 
 use jepa_core::types::Representation;
 use jepa_core::Encoder;
@@ -177,6 +177,26 @@ pub struct VitEncoder<B: Backend> {
 }
 
 impl<B: Backend> VitEncoder<B> {
+    fn positioned_patch_tokens(&self, images: &Tensor<B, 4>) -> Tensor<B, 3> {
+        // 1. Patch embedding
+        let x = self.patch_embed.forward(images.clone());
+
+        // 2. Apply RoPE before any masking so absolute token positions remain correct.
+        self.positional_encoding.forward(x)
+    }
+
+    fn encode_positioned_tokens(&self, mut x: Tensor<B, 3>) -> Representation<B> {
+        // Transformer blocks
+        for block in &self.blocks {
+            x = block.forward(x);
+        }
+
+        // Layer norm
+        x = self.norm.forward(x);
+
+        Representation::new(x)
+    }
+
     /// Forward pass: image → representation.
     ///
     /// # Arguments
@@ -185,22 +205,39 @@ impl<B: Backend> VitEncoder<B> {
     /// # Returns
     /// Patch-level representations. Shape: `[batch, num_patches, embed_dim]`
     pub fn forward(&self, images: &Tensor<B, 4>) -> Representation<B> {
-        // 1. Patch embedding
-        let mut x = self.patch_embed.forward(images.clone());
-
-        // 2. Apply RoPE
-        x = self.positional_encoding.forward(x);
-
-        // 3. Transformer blocks
-        for block in &self.blocks {
-            x = block.forward(x);
-        }
-
-        // 4. Layer norm
-        x = self.norm.forward(x);
-
-        Representation::new(x)
+        let x = self.positioned_patch_tokens(images);
+        self.encode_positioned_tokens(x)
     }
+
+    /// Encode only the visible patch tokens for strict JEPA context encoding.
+    ///
+    /// The image is patchified and position-encoded using the full grid so the
+    /// surviving tokens retain their real flattened positions, then masked
+    /// tokens are removed before self-attention runs.
+    pub fn forward_visible_tokens(
+        &self,
+        images: &Tensor<B, 4>,
+        visible_indices: &[usize],
+    ) -> Representation<B> {
+        let x = self.positioned_patch_tokens(images);
+        let x = gather_token_sequence(x, visible_indices);
+        self.encode_positioned_tokens(x)
+    }
+}
+
+fn gather_token_sequence<B: Backend>(tokens: Tensor<B, 3>, indices: &[usize]) -> Tensor<B, 3> {
+    let [batch, _seq_len, embed_dim] = tokens.dims();
+    let device = tokens.device();
+
+    if indices.is_empty() {
+        return Tensor::zeros([batch, 0, embed_dim], &device);
+    }
+
+    let index_data: Vec<i64> = indices.iter().map(|&index| index as i64).collect();
+    let index_tensor =
+        Tensor::<B, 1, Int>::from_data(TensorData::new(index_data, [indices.len()]), &device);
+
+    tokens.select(1, index_tensor)
 }
 
 impl<B: Backend> Encoder<B> for VitEncoder<B> {

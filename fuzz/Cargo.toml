@@ -1,0 +1,47 @@
+[package]
+name = "jepa-rs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.12"
+burn = { version = "0.20.1", features = ["autodiff"] }
+burn-ndarray = "0.20.1"
+rand = "0.10.0"
+rand_chacha = "0.10.0"
+jepa-core = { path = "../crates/jepa-core" }
+jepa-compat = { path = "../crates/jepa-compat" }
+
+[[bin]]
+name = "masking"
+path = "fuzz_targets/masking.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gather"
+path = "fuzz_targets/gather.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "energy"
+path = "fuzz_targets/energy.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "checkpoint_parsing"
+path = "fuzz_targets/checkpoint_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

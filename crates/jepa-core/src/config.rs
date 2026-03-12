@@ -86,7 +86,7 @@ impl JepaConfig {
         if self.num_heads == 0 {
             return Err(ConfigError::ZeroHeads(self.num_heads));
         }
-        if !self.embed_dim.is_multiple_of(self.num_heads) {
+        if self.embed_dim % self.num_heads != 0 {
             return Err(ConfigError::HeadDimMismatch {
                 embed_dim: self.embed_dim,
                 num_heads: self.num_heads,

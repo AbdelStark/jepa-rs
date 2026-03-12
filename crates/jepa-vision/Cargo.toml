@@ -2,10 +2,16 @@
 name = "jepa-vision"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Vision-specific JEPA implementations (ViT encoder, patch embedding, I-JEPA)"
+readme = "../../README.md"
+documentation = "https://docs.rs/jepa-vision"
 
 [dependencies]
 jepa-core = { path = "../jepa-core" }

@@ -6,7 +6,7 @@ Rust workspace for JEPA building blocks on top of `burn` 0.20.1.
 
 ## What This Is
 
-`jepa-rs` implements the main components of Joint Embedding Predictive Architectures: core traits, vision encoders and predictors, world-model utilities, training helpers, and checkpoint compatibility code.
+`jepa-rs` implements the main components of Joint Embedding Predictive Architectures: core traits, vision encoders and predictors, world-model utilities, training helpers, checkpoint compatibility code, and parser-backed ONNX inspection/loading.
 
 ## Who It Is For
 
@@ -14,16 +14,15 @@ This repository is for Rust developers who want to experiment with JEPA-style mo
 
 ## Status
 
-As of March 12, 2026, this project is **alpha**.
+As of March 12, 2026, this project is **alpha with production-hardening work in progress**.
 
 It is suitable for local research, API exploration, and extending JEPA components inside Rust codebases. It is not yet suitable for parity-sensitive production training or deployment pipelines.
 
 Known limitations:
 
-- The generic trainer in [`crates/jepa-train/src/trainer.rs`](./crates/jepa-train/src/trainer.rs) slices context and target tokens after encoder forward, so it does not enforce strict pre-encoder masking semantics.
-- ONNX loading in [`crates/jepa-compat/src/onnx.rs`](./crates/jepa-compat/src/onnx.rs) is still a stub until an ONNX runtime dependency is added.
-- Differential tests against the Python reference implementations are not wired yet.
-- Fuzz targets and CI-enforced coverage thresholds are not present yet.
+- The generic trainer in [`crates/jepa-train/src/trainer.rs`](./crates/jepa-train/src/trainer.rs) still slices context and target tokens after encoder forward. Strict pre-attention masking is available through [`IJepa::forward_step_strict`](./crates/jepa-vision/src/image.rs) and [`VJepa::forward_step_strict`](./crates/jepa-vision/src/video.rs).
+- Differential parity against canonical Python JEPA implementations is fixture-driven and not yet provisioned as a mandatory CI job.
+- ONNX support covers model metadata and initializer loading, not full runtime execution.
 - Workspace crates are not published to crates.io yet.
 
 ## Workspace Layout
@@ -37,6 +36,7 @@ jepa-compat   safetensors loading, key remapping, ONNX API surface
 ```
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for design notes and invariants, [PRODUCTION_GAP.md](./PRODUCTION_GAP.md) for the current blocker register, [ROADMAP.md](./ROADMAP.md) for milestone sequencing, and [WORK_PACKAGES.md](./WORK_PACKAGES.md) for implementation-sized tasks.
+Operational guidance for verification and release lives in [docs/QUALITY_GATES.md](./docs/QUALITY_GATES.md) and [docs/RELEASE.md](./docs/RELEASE.md).
 
 ## Quick Start
 
@@ -82,6 +82,14 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt -- --check
 cargo doc --no-deps
+```
+
+Extended quality gates:
+
+```bash
+cargo llvm-cov --workspace --all-features --fail-under-lines 80
+(cd fuzz && cargo fuzz run masking -- -runs=1000)
+cargo bench --workspace --no-run
 ```
 
 Target a single crate when iterating:

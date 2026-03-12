@@ -8,6 +8,13 @@
 //! It does NOT own the optimizer — that is the caller's responsibility,
 //! following burn's convention of keeping optimization separate from
 //! model logic.
+//!
+//! Important: [`JepaComponents::forward_step`] is intentionally generic over
+//! `Encoder`, which means it cannot remove hidden targets before encoder
+//! self-attention runs. For strict pre-encoder masking semantics, use the
+//! modality-specific helpers in `jepa-vision`:
+//! `jepa_vision::image::IJepa::forward_step_strict` and
+//! `jepa_vision::video::VJepa::forward_step_strict`.
 
 use burn::tensor::{backend::Backend, Tensor, TensorData};
 
@@ -113,6 +120,11 @@ where
     /// 5. Compute energy (prediction loss) between predicted and actual targets
     /// 6. Compute collapse prevention regularization loss
     /// 7. Combine into total loss
+    ///
+    /// This helper is an approximation of strict JEPA masking semantics:
+    /// the context encoder still sees the full token sequence before the
+    /// context slice is gathered. Prefer the encoder-specific strict helpers
+    /// when hidden-token isolation matters.
     ///
     /// The caller is responsible for:
     /// - Running backward pass on `total_loss`

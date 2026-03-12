@@ -7,7 +7,7 @@ use burn::prelude::*;
 use burn::tensor::ElementConversion;
 use burn_ndarray::NdArray;
 
-use jepa_core::types::{InputShape, Representation};
+use jepa_core::types::{InputShape, MaskSpec, Representation};
 use jepa_core::{Encoder, EnergyFn, MaskingStrategy, Predictor};
 use jepa_vision::image::IJepaConfig;
 use jepa_vision::video::VitVideoConfig;
@@ -17,6 +17,76 @@ type TestBackend = NdArray<f32>;
 
 fn device() -> burn_ndarray::NdArrayDevice {
     burn_ndarray::NdArrayDevice::Cpu
+}
+
+fn fixed_image_mask() -> MaskSpec {
+    MaskSpec {
+        context_indices: vec![0, 1, 4, 5, 10, 11, 14, 15],
+        target_indices: vec![2, 3, 6, 7, 8, 9, 12, 13],
+        total_tokens: 16,
+    }
+}
+
+fn image_with_hidden_patch_value(mask: &MaskSpec, hidden_value: f32) -> Tensor<TestBackend, 4> {
+    let image_size = 8usize;
+    let patch_size = 2usize;
+    let mut data = vec![1.0f32; image_size * image_size];
+
+    for &index in &mask.target_indices {
+        let patch_row = index / 4;
+        let patch_col = index % 4;
+        let row_start = patch_row * patch_size;
+        let col_start = patch_col * patch_size;
+
+        for row in row_start..row_start + patch_size {
+            for col in col_start..col_start + patch_size {
+                data[row * image_size + col] = hidden_value;
+            }
+        }
+    }
+
+    Tensor::from_floats(
+        burn::tensor::TensorData::new(data, [1, 1, image_size, image_size]),
+        &device(),
+    )
+}
+
+fn fixed_video_mask() -> MaskSpec {
+    MaskSpec {
+        context_indices: (0..16).collect(),
+        target_indices: (16..32).collect(),
+        total_tokens: 32,
+    }
+}
+
+fn video_with_hidden_tubelet_value(mask: &MaskSpec, hidden_value: f32) -> Tensor<TestBackend, 5> {
+    let frames = 4usize;
+    let height = 8usize;
+    let width = 8usize;
+    let mut data = vec![1.0f32; frames * height * width];
+
+    for &index in &mask.target_indices {
+        let temporal_block = index / 16;
+        let spatial_index = index % 16;
+        let spatial_row = spatial_index / 4;
+        let spatial_col = spatial_index % 4;
+        let frame_start = temporal_block * 2;
+        let row_start = spatial_row * 2;
+        let col_start = spatial_col * 2;
+
+        for frame in frame_start..frame_start + 2 {
+            for row in row_start..row_start + 2 {
+                for col in col_start..col_start + 2 {
+                    data[(frame * height + row) * width + col] = hidden_value;
+                }
+            }
+        }
+    }
+
+    Tensor::from_floats(
+        burn::tensor::TensorData::new(data, [1, 1, frames, height, width]),
+        &device(),
+    )
 }
 
 // ---- I-JEPA Integration Tests (matching Gherkin scenarios) ----
@@ -183,6 +253,28 @@ fn test_ijepa_different_inputs_different_outputs() {
     );
 }
 
+#[test]
+fn test_ijepa_strict_context_isolates_hidden_patches() {
+    let config = IJepaConfig::tiny_test();
+    let model = config.init::<TestBackend>(&device());
+    let mask = fixed_image_mask();
+    let hidden_low = image_with_hidden_patch_value(&mask, 0.0);
+    let hidden_high = image_with_hidden_patch_value(&mask, 1_000.0);
+
+    let strict_low = model.encode_context_strict(&hidden_low, &mask.context_indices);
+    let strict_high = model.encode_context_strict(&hidden_high, &mask.context_indices);
+
+    let diff: f32 = (strict_low.embeddings - strict_high.embeddings)
+        .abs()
+        .sum()
+        .into_scalar()
+        .elem();
+    assert!(
+        diff < 1e-5,
+        "strict image path leaked hidden patches, diff={diff}"
+    );
+}
+
 // ---- V-JEPA Integration Tests ----
 
 /// Gherkin (adapted): V-JEPA video encoder forward pass produces
@@ -243,6 +335,28 @@ fn test_vjepa_different_inputs_different_outputs() {
     assert!(
         diff > 1e-6,
         "different video inputs should produce different representations, diff={diff}"
+    );
+}
+
+#[test]
+fn test_vjepa_strict_context_isolates_hidden_tubelets() {
+    let config = jepa_vision::video::VJepaConfig::tiny_test();
+    let model = config.init::<TestBackend>(&device());
+    let mask = fixed_video_mask();
+    let hidden_low = video_with_hidden_tubelet_value(&mask, 0.0);
+    let hidden_high = video_with_hidden_tubelet_value(&mask, 1_000.0);
+
+    let strict_low = model.encode_context_strict(&hidden_low, &mask.context_indices);
+    let strict_high = model.encode_context_strict(&hidden_high, &mask.context_indices);
+
+    let diff: f32 = (strict_low.embeddings - strict_high.embeddings)
+        .abs()
+        .sum()
+        .into_scalar()
+        .elem();
+    assert!(
+        diff < 1e-5,
+        "strict video path leaked hidden tubelets, diff={diff}"
     );
 }
 

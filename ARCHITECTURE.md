@@ -92,13 +92,20 @@ Today, safetensors support is functional and ONNX loading is not.
 
 ## Known Gaps
 
-### Strict masked-encoder semantics are incomplete
+### Generic training remains approximate
 
-The generic path in [`crates/jepa-train/src/trainer.rs`](./crates/jepa-train/src/trainer.rs) encodes the full input and then slices visible and target tokens. That keeps downstream shapes honest, but it does not stop encoder self-attention from seeing target tokens. A stricter training path needs encoder-specific masked-input support.
+The generic path in [`crates/jepa-train/src/trainer.rs`](./crates/jepa-train/src/trainer.rs) still encodes the full input and then slices visible and target tokens. That keeps the orchestration reusable across backends and modalities, but it does not stop encoder self-attention from seeing target tokens.
 
-### ONNX is an adapter stub
+Strict pre-attention masking is now provided through the concrete vision-model helpers:
 
-[`crates/jepa-compat/src/onnx.rs`](./crates/jepa-compat/src/onnx.rs) validates file existence and exposes error types, but it does not parse ONNX graphs yet.
+- [`crates/jepa-vision/src/image.rs`](./crates/jepa-vision/src/image.rs) via `IJepa::forward_step_strict`
+- [`crates/jepa-vision/src/video.rs`](./crates/jepa-vision/src/video.rs) via `VJepa::forward_step_strict`
+
+### ONNX parsing and initializer loading are implemented
+
+[`crates/jepa-compat/src/onnx.rs`](./crates/jepa-compat/src/onnx.rs) now parses real ONNX `ModelProto` files, extracts input/output metadata, and loads embedded initializers into the checkpoint abstraction used by the rest of the workspace.
+
+Current scope is model inspection and weight import, not general ONNX runtime execution.
 
 ### Reference parity is not proven
 
@@ -129,10 +136,10 @@ cargo test -p jepa-train
 As of March 12, 2026:
 
 - Workspace build, test, clippy, and docs pass locally.
-- Safetensors loading is usable.
-- ONNX runtime integration is not implemented.
-- The generic trainer remains an approximation of strict JEPA masking semantics.
-- Differential tests, fuzz targets, and crates.io release work remain open.
+- Safetensors and ONNX initializer loading are usable.
+- Strict image and video masked forward paths exist alongside the generic approximate trainer.
+- Fuzz targets, coverage policy, and benchmark smoke checks are part of the verification surface.
+- Differential reference parity and crates.io publication still require follow-through.
 
 ## Next Three Milestones
 
@@ -140,8 +147,8 @@ As of March 12, 2026:
 
 Scope:
 
-- add encoder-specific masked forward paths
-- add regression tests that prove hidden tokens cannot influence context encoding
+- keep strict image/video masked paths covered by no-leakage regression tests
+- maintain clear separation between generic approximate orchestration and strict modality-specific paths
 
 Exit criteria:
 
@@ -164,12 +171,12 @@ Exit criteria:
 
 Scope:
 
-- ONNX runtime support
+- ONNX metadata and checkpoint support
 - fuzz targets for masking and energy code
 - release packaging
 
 Exit criteria:
 
-- ONNX integration is functional, not stubbed
+- ONNX integration is functional for metadata and initializer loading
 - fuzz targets run in CI or dedicated automation
 - crates are publishable with accurate release notes

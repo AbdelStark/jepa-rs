@@ -14,12 +14,15 @@ cargo test
 ## Development Workflow
 
 1. **Build**: `cargo build`
-2. **Test**: `cargo test` (runs 267 unit/integration + 23 doc tests)
-3. **Lint**: `cargo clippy --all-targets`
+2. **Test**: `cargo test`
+3. **Lint**: `cargo clippy --workspace --all-targets -- -D warnings`
 4. **Format**: `cargo fmt` (check with `cargo fmt -- --check`)
-5. **Docs**: `cargo doc --no-deps`
+5. **Docs**: `cargo doc --workspace --no-deps`
+6. **Coverage**: `cargo llvm-cov --workspace --all-features --fail-under-lines 80`
+7. **Fuzz smoke**: run the commands from [`docs/QUALITY_GATES.md`](./docs/QUALITY_GATES.md)
+8. **Bench smoke**: `cargo bench --workspace --no-run`
 
-All five checks must pass before submitting a PR.
+All release-blocking checks must pass before submitting a PR.
 
 ## Architecture
 
@@ -40,7 +43,7 @@ All crates depend on `jepa-core`. There are no circular dependencies.
 - **Backend-agnostic**: All ML types are generic over `B: Backend` (burn's backend trait)
 - **Semantic types**: Use `Representation<B>`, `Energy<B>` wrappers — never raw tensors in public APIs
 - **Validate early**: All inputs validated at construction time
-- **No unwrap in library code**: Use `Result<T, E>` with `thiserror` error enums
+- **Typed misuse paths first**: Use `Result<T, E>` with `thiserror` error enums for caller-triggerable failures
 - **Deterministic**: Use `rand_chacha` seeded RNG for reproducibility
 
 ## Writing Tests
@@ -62,4 +65,6 @@ Format: `type(scope): description`
 
 - [SPECIFICATION.md](./SPECIFICATION.md) — RFC archive (read-only, source of truth)
 - [CHANGELOG.md](./CHANGELOG.md) — Version history
+- [docs/QUALITY_GATES.md](./docs/QUALITY_GATES.md) — Verification runbook
+- [docs/RELEASE.md](./docs/RELEASE.md) — Release checklist and policy
 - [specs/gherkin/features.feature](./specs/gherkin/features.feature) — BDD scenarios

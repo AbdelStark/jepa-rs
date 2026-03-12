@@ -10,12 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **jepa-core**: `Representation::gather` now uses indexed selection and preserves representation masks instead of dropping them silently
 - **jepa-train**: `JepaComponents::forward_step` now validates generated masks and passes real target indices to predictors
+- **jepa-train**: Generic `JepaComponents::forward_step` docs now explicitly call out its approximate masking semantics and point callers to strict vision helpers
 - **jepa-vision**: `TransformerPredictor` now conditions prediction tokens on target positions instead of ignoring them
-- **jepa-compat**: `OnnxModelInfo::from_file` now distinguishes missing files from runtime-unavailable errors
+- **jepa-compat**: ONNX support now parses real `ModelProto` files and loads initializers into the checkpoint abstraction
 - Documentation and agent context files now describe the project as alpha and explicitly call out the current trainer and ONNX limitations
 - Added in-repo planning docs for production gaps, milestone roadmap, and implementation work packages
 
 ### Added
+- **jepa-vision**: Strict masked image and video forward paths with no-leakage regression coverage
+- **jepa-world**: `try_new`, `try_push`, `try_total_cost`, and `try_plan` runtime-validation helpers for caller-triggerable failure modes
+- **jepa-compat**: Parser-backed ONNX metadata inspection and initializer loading
+- Fuzz targets for masking, gather, energy, and checkpoint parsing
+- Coverage, fuzz, and benchmark-smoke CI jobs
+- ADR-0001 for strict masked encoder semantics
+- Quality-gate and release-process runbooks under `docs/`
 - **jepa-core**: Core traits (`Encoder`, `Predictor`, `EnergyFn`, `MaskingStrategy`, `CollapseRegularizer`) — RFC-001 through RFC-007
 - **jepa-core**: Energy functions: `L2Energy`, `CosineEnergy`, `SmoothL1Energy` — RFC-004
 - **jepa-core**: Masking strategies: `BlockMasking`, `SpatiotemporalMasking`, `MultiBlockMasking` — RFC-005
@@ -37,7 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **jepa-train**: `TrainConfig`, `TrainMetrics`, `TrainStepOutput` — RFC-008
 - **jepa-compat**: Safetensors checkpoint loading and conversion — RFC-011
 - **jepa-compat**: I-JEPA/V-JEPA key mapping patterns — RFC-011
-- **jepa-compat**: ONNX model info types (API-complete, runtime stub) — RFC-011
 - CI workflow with check, test, clippy, fmt, and doc jobs
 - 267 unit/integration tests + 23 doc tests across all crates
 - Property-based tests with proptest for numerical invariants

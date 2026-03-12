@@ -2,10 +2,16 @@
 name = "jepa-train"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Training loop utilities for JEPA models"
+readme = "../../README.md"
+documentation = "https://docs.rs/jepa-train"
 
 [dependencies]
 jepa-core = { path = "../jepa-core" }

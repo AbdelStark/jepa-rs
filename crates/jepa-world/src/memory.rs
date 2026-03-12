@@ -36,6 +36,7 @@ use jepa_core::types::Representation;
 /// assert_eq!(memory.len(), 1);
 /// assert!(memory.latest().is_some());
 /// ```
+#[derive(Debug)]
 pub struct ShortTermMemory<B: Backend> {
     /// Ring buffer storage.
     buffer: Vec<Representation<B>>,
@@ -53,19 +54,44 @@ impl<B: Backend> ShortTermMemory<B> {
     /// # Panics
     /// Panics if `capacity` is zero.
     pub fn new(capacity: usize) -> Self {
-        assert!(capacity > 0, "memory capacity must be positive");
-        Self {
+        Self::try_new(capacity).expect("memory capacity must be positive")
+    }
+
+    /// Create a new short-term memory with the given capacity.
+    pub fn try_new(capacity: usize) -> Result<Self, MemoryError> {
+        if capacity == 0 {
+            return Err(MemoryError::ZeroCapacity(capacity));
+        }
+
+        Ok(Self {
             buffer: Vec::with_capacity(capacity),
             capacity,
             write_pos: 0,
             len: 0,
-        }
+        })
     }
 
     /// Push a new state representation into memory.
     ///
     /// If the buffer is full, the oldest entry is evicted.
     pub fn push(&mut self, repr: Representation<B>) {
+        self.try_push(repr)
+            .expect("memory push invariant violated: embed_dim must remain constant");
+    }
+
+    /// Push a new state representation into memory.
+    ///
+    /// Returns an error when the new representation has a different
+    /// embedding dimension than the existing memory contents.
+    pub fn try_push(&mut self, repr: Representation<B>) -> Result<(), MemoryError> {
+        if let Some(latest) = self.latest() {
+            let expected = latest.embed_dim();
+            let actual = repr.embed_dim();
+            if expected != actual {
+                return Err(MemoryError::EmbedDimMismatch { expected, actual });
+            }
+        }
+
         if self.buffer.len() < self.capacity {
             self.buffer.push(repr);
         } else {
@@ -73,6 +99,7 @@ impl<B: Backend> ShortTermMemory<B> {
         }
         self.write_pos = (self.write_pos + 1) % self.capacity;
         self.len = self.len.saturating_add(1).min(self.capacity);
+        Ok(())
     }
 
     /// Number of entries currently stored.
@@ -286,6 +313,28 @@ mod tests {
         assert_eq!(mem.len(), 0);
         assert!(mem.latest().is_none());
         assert!(mem.entries_chronological().is_empty());
+    }
+
+    #[test]
+    fn test_try_new_zero_capacity_returns_error() {
+        let err = ShortTermMemory::<TestBackend>::try_new(0).unwrap_err();
+        assert!(matches!(err, MemoryError::ZeroCapacity(0)));
+    }
+
+    #[test]
+    fn test_try_push_rejects_embed_dim_mismatch() {
+        let mut mem = ShortTermMemory::new(2);
+        mem.push(make_repr(1.0));
+        let mismatched = Representation::new(Tensor::ones([1, 1, 2], &device()));
+
+        let err = mem.try_push(mismatched).unwrap_err();
+        assert!(matches!(
+            err,
+            MemoryError::EmbedDimMismatch {
+                expected: 1,
+                actual: 2
+            }
+        ));
     }
 
     #[test]

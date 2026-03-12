@@ -32,6 +32,23 @@ pub trait CostFunction<B: Backend> {
     fn total_cost(&self, trajectory: &[Representation<B>], goal: &Representation<B>) -> Energy<B>;
 }
 
+/// Errors from planning and cost evaluation helpers.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum PlanningError {
+    #[error("trajectory must not be empty")]
+    EmptyTrajectory,
+    #[error("num_candidates must be positive, got {0}")]
+    ZeroCandidates(usize),
+    #[error("num_iterations must be positive, got {0}")]
+    ZeroIterations(usize),
+    #[error("num_elites must be positive, got {0}")]
+    ZeroElites(usize),
+    #[error("planning horizon must be positive, got {0}")]
+    ZeroHorizon(usize),
+    #[error("action_dim must be positive, got {0}")]
+    ZeroActionDim(usize),
+}
+
 /// L2 cost: distance between final state and goal in representation space.
 ///
 /// # Example
@@ -57,14 +74,29 @@ pub trait CostFunction<B: Backend> {
 /// ```
 pub struct L2Cost;
 
-impl<B: Backend> CostFunction<B> for L2Cost {
-    fn total_cost(&self, trajectory: &[Representation<B>], goal: &Representation<B>) -> Energy<B> {
-        let final_state = trajectory.last().expect("trajectory must not be empty");
+impl L2Cost {
+    /// Fallible cost evaluation for caller-controlled trajectories.
+    pub fn try_total_cost<B: Backend>(
+        &self,
+        trajectory: &[Representation<B>],
+        goal: &Representation<B>,
+    ) -> Result<Energy<B>, PlanningError> {
+        let Some(final_state) = trajectory.last() else {
+            return Err(PlanningError::EmptyTrajectory);
+        };
+
         let diff = final_state.embeddings.clone() - goal.embeddings.clone();
         let cost = (diff.clone() * diff).mean();
-        Energy {
+        Ok(Energy {
             value: cost.unsqueeze(),
-        }
+        })
+    }
+}
+
+impl<B: Backend> CostFunction<B> for L2Cost {
+    fn total_cost(&self, trajectory: &[Representation<B>], goal: &Representation<B>) -> Energy<B> {
+        self.try_total_cost(trajectory, goal)
+            .expect("trajectory must not be empty")
     }
 }
 
@@ -182,6 +214,22 @@ impl Default for RandomShootingConfig {
     }
 }
 
+impl RandomShootingConfig {
+    /// Validate the planner configuration.
+    pub fn validate(&self) -> Result<(), PlanningError> {
+        if self.num_candidates == 0 {
+            return Err(PlanningError::ZeroCandidates(self.num_candidates));
+        }
+        if self.num_iterations == 0 {
+            return Err(PlanningError::ZeroIterations(self.num_iterations));
+        }
+        if self.num_elites == 0 {
+            return Err(PlanningError::ZeroElites(self.num_elites));
+        }
+        Ok(())
+    }
+}
+
 /// Random-shooting planner (Cross-Entropy Method).
 ///
 /// Optimizes action sequences by:
@@ -215,6 +263,12 @@ impl RandomShootingPlanner {
         Self { config }
     }
 
+    /// Create a new planner after validating the configuration.
+    pub fn try_new(config: RandomShootingConfig) -> Result<Self, PlanningError> {
+        config.validate()?;
+        Ok(Self { config })
+    }
+
     /// Plan an action sequence to reach a goal state.
     ///
     /// Uses the Cross-Entropy Method (CEM) to iteratively refine a distribution
@@ -236,6 +290,28 @@ impl RandomShootingPlanner {
         action_dim: usize,
         rng: &mut impl rand::Rng,
     ) -> PlanResult<B> {
+        self.try_plan(world_model, initial_state, goal, horizon, action_dim, rng)
+            .expect("planner configuration and dimensions must be valid")
+    }
+
+    /// Plan an action sequence with typed error reporting for invalid inputs.
+    pub fn try_plan<B: Backend, D: ActionConditionedPredictor<B>, C: CostFunction<B>>(
+        &self,
+        world_model: &WorldModel<B, D, C>,
+        initial_state: &Representation<B>,
+        goal: &Representation<B>,
+        horizon: usize,
+        action_dim: usize,
+        rng: &mut impl rand::Rng,
+    ) -> Result<PlanResult<B>, PlanningError> {
+        self.config.validate()?;
+        if horizon == 0 {
+            return Err(PlanningError::ZeroHorizon(horizon));
+        }
+        if action_dim == 0 {
+            return Err(PlanningError::ZeroActionDim(action_dim));
+        }
+
         let device = initial_state.embeddings.device();
 
         // Initialize mean and std for the action distribution
@@ -329,11 +405,11 @@ impl RandomShootingPlanner {
             }
         }
 
-        PlanResult {
+        Ok(PlanResult {
             actions: best_actions,
             cost: best_cost,
             cost_history,
-        }
+        })
     }
 }
 
@@ -451,6 +527,16 @@ mod tests {
     }
 
     #[test]
+    fn test_l2_cost_try_total_cost_returns_error_for_empty_trajectory() {
+        let cost = L2Cost;
+        let goal = Representation::<TestBackend>::new(Tensor::ones([1, 4, 8], &device()));
+        let empty: Vec<Representation<TestBackend>> = vec![];
+
+        let err = cost.try_total_cost(&empty, &goal).unwrap_err();
+        assert_eq!(err, PlanningError::EmptyTrajectory);
+    }
+
+    #[test]
     fn test_l2_cost_zero_at_goal() {
         let model = WorldModel::new(AdditiveDynamics, L2Cost);
 
@@ -538,6 +624,45 @@ mod tests {
         assert_eq!(config.num_iterations, 5);
         assert_eq!(config.num_elites, 8);
         assert!((config.init_std - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_random_shooting_config_validation() {
+        let err = RandomShootingConfig {
+            num_candidates: 0,
+            num_iterations: 5,
+            num_elites: 8,
+            init_std: 1.0,
+        }
+        .validate()
+        .unwrap_err();
+        assert_eq!(err, PlanningError::ZeroCandidates(0));
+
+        let err = RandomShootingConfig {
+            num_candidates: 4,
+            num_iterations: 0,
+            num_elites: 1,
+            init_std: 1.0,
+        }
+        .validate()
+        .unwrap_err();
+        assert_eq!(err, PlanningError::ZeroIterations(0));
+    }
+
+    #[test]
+    fn test_random_shooting_try_plan_rejects_zero_horizon() {
+        use rand::SeedableRng;
+
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        let planner = RandomShootingPlanner::new(RandomShootingConfig::default());
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1);
+
+        let err = planner
+            .try_plan(&model, &initial, &goal, 0, 8, &mut rng)
+            .unwrap_err();
+        assert_eq!(err, PlanningError::ZeroHorizon(0));
     }
 
     #[test]
