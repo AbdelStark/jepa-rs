@@ -18,4 +18,6 @@ pub mod planner;
 pub use action::{Action, ActionConditionedPredictor};
 pub use hierarchy::{HierarchicalJepa, JepaLevel};
 pub use memory::ShortTermMemory;
-pub use planner::{CostFunction, L2Cost, WorldModel};
+pub use planner::{
+    CostFunction, L2Cost, PlanResult, RandomShootingConfig, RandomShootingPlanner, WorldModel,
+};

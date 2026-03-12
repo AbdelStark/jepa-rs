@@ -35,6 +35,42 @@ impl<B: Backend> Representation<B> {
     pub fn embed_dim(&self) -> usize {
         self.embeddings.dims()[2]
     }
+
+    /// Gather tokens at the given sequence indices from each batch element.
+    ///
+    /// Extracts a subset of tokens by index, producing a new representation
+    /// with `seq_len = indices.len()`. This is used to extract context or
+    /// target tokens according to a [`MaskSpec`].
+    ///
+    /// # Arguments
+    /// * `indices` - Token indices to gather. Must all be < `self.seq_len()`.
+    ///
+    /// # Returns
+    /// A new representation with shape `[batch, indices.len(), embed_dim]`.
+    pub fn gather(&self, indices: &[usize]) -> Self {
+        let [batch, _seq_len, embed_dim] = self.embeddings.dims();
+        let num_indices = indices.len();
+        let device = self.embeddings.device();
+
+        if num_indices == 0 {
+            return Self::new(Tensor::zeros([batch, 0, embed_dim], &device));
+        }
+
+        // Build index tensor: [num_indices, embed_dim] where each row is the flat offset
+        // For each batch element b and index i: gather embeddings[b, indices[i], :]
+        // We do this by slicing each index and concatenating along dim 1.
+        let slices: Vec<Tensor<B, 3>> = indices
+            .iter()
+            .map(|&idx| {
+                self.embeddings
+                    .clone()
+                    .slice([0..batch, idx..idx + 1, 0..embed_dim])
+            })
+            .collect();
+
+        let gathered = Tensor::cat(slices, 1); // [batch, num_indices, embed_dim]
+        Self::new(gathered)
+    }
 }
 
 /// Energy scalar measuring compatibility between two representations.
@@ -152,6 +188,58 @@ impl InputShape {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn_ndarray::NdArray;
+
+    type TestBackend = NdArray<f32>;
+
+    fn device() -> burn_ndarray::NdArrayDevice {
+        burn_ndarray::NdArrayDevice::Cpu
+    }
+
+    #[test]
+    fn test_representation_gather_selects_correct_tokens() {
+        // Create representation with known values: token i has all values = i
+        let data: Vec<f32> = (0..12)
+            .map(|i| {
+                let token = i / 4; // 3 tokens, embed_dim=4
+                token as f32
+            })
+            .collect();
+        let tensor = Tensor::<TestBackend, 3>::from_floats(
+            burn::tensor::TensorData::new(data, [1, 3, 4]),
+            &device(),
+        );
+        let repr = Representation::new(tensor);
+
+        // Gather tokens 0 and 2 (skip token 1)
+        let gathered = repr.gather(&[0, 2]);
+        assert_eq!(gathered.batch_size(), 1);
+        assert_eq!(gathered.seq_len(), 2);
+        assert_eq!(gathered.embed_dim(), 4);
+
+        let vals: Vec<f32> = gathered.embeddings.into_data().to_vec().unwrap();
+        // Token 0 has all 0.0, token 2 has all 2.0
+        assert!((vals[0] - 0.0).abs() < 1e-6);
+        assert!((vals[4] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_representation_gather_preserves_batch() {
+        let tensor = Tensor::<TestBackend, 3>::ones([3, 8, 16], &device());
+        let repr = Representation::new(tensor);
+        let gathered = repr.gather(&[1, 3, 5]);
+        assert_eq!(gathered.batch_size(), 3);
+        assert_eq!(gathered.seq_len(), 3);
+        assert_eq!(gathered.embed_dim(), 16);
+    }
+
+    #[test]
+    fn test_representation_gather_single_index() {
+        let tensor = Tensor::<TestBackend, 3>::ones([2, 4, 8], &device());
+        let repr = Representation::new(tensor);
+        let gathered = repr.gather(&[2]);
+        assert_eq!(gathered.seq_len(), 1);
+    }
 
     #[test]
     fn test_mask_spec_validate_valid() {

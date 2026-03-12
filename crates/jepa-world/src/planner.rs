@@ -7,6 +7,7 @@
 //! evaluate action sequences before execution.
 
 use burn::tensor::backend::Backend;
+use burn::tensor::{ElementConversion, Tensor};
 
 use jepa_core::types::{Energy, Representation};
 
@@ -112,11 +113,189 @@ impl<B: Backend, D: ActionConditionedPredictor<B>, C: CostFunction<B>> WorldMode
     }
 }
 
+/// Configuration for the random-shooting planner (CEM-style).
+#[derive(Debug, Clone)]
+pub struct RandomShootingConfig {
+    /// Number of candidate action sequences to sample per iteration.
+    pub num_candidates: usize,
+    /// Number of optimization iterations.
+    pub num_iterations: usize,
+    /// Number of top candidates to keep (elite set) for refining the distribution.
+    pub num_elites: usize,
+    /// Initial standard deviation for action sampling.
+    pub init_std: f64,
+}
+
+impl Default for RandomShootingConfig {
+    fn default() -> Self {
+        Self {
+            num_candidates: 64,
+            num_iterations: 5,
+            num_elites: 8,
+            init_std: 1.0,
+        }
+    }
+}
+
+/// Random-shooting planner (Cross-Entropy Method).
+///
+/// Optimizes action sequences by:
+/// 1. Sampling candidate action sequences from a Gaussian distribution
+/// 2. Evaluating each candidate via world model rollout
+/// 3. Selecting the top-k (elite) candidates
+/// 4. Refitting the Gaussian to the elite set
+/// 5. Repeating for several iterations
+///
+/// This is a zeroth-order optimization method that works with any backend
+/// (no autodiff required).
+pub struct RandomShootingPlanner {
+    /// Planner configuration.
+    pub config: RandomShootingConfig,
+}
+
+/// Output of the planning process.
+#[derive(Debug)]
+pub struct PlanResult<B: Backend> {
+    /// The best action sequence found.
+    pub actions: Vec<Action<B>>,
+    /// The cost of the best plan.
+    pub cost: f32,
+    /// Cost history: best cost at each iteration.
+    pub cost_history: Vec<f32>,
+}
+
+impl RandomShootingPlanner {
+    /// Create a new random-shooting planner with the given configuration.
+    pub fn new(config: RandomShootingConfig) -> Self {
+        Self { config }
+    }
+
+    /// Plan an action sequence to reach a goal state.
+    ///
+    /// Uses the Cross-Entropy Method (CEM) to iteratively refine a distribution
+    /// over action sequences, selecting the best trajectory under the world model.
+    ///
+    /// # Arguments
+    /// * `world_model` - The world model for rollout and cost evaluation
+    /// * `initial_state` - Starting state
+    /// * `goal` - Goal state to reach
+    /// * `horizon` - Number of actions in the plan
+    /// * `action_dim` - Dimension of each action vector
+    /// * `rng` - Random number generator
+    pub fn plan<B: Backend, D: ActionConditionedPredictor<B>, C: CostFunction<B>>(
+        &self,
+        world_model: &WorldModel<B, D, C>,
+        initial_state: &Representation<B>,
+        goal: &Representation<B>,
+        horizon: usize,
+        action_dim: usize,
+        rng: &mut impl rand::Rng,
+    ) -> PlanResult<B> {
+        let device = initial_state.embeddings.device();
+
+        // Initialize mean and std for the action distribution
+        let mut mean = vec![vec![0.0f64; action_dim]; horizon];
+        let mut std = vec![vec![self.config.init_std; action_dim]; horizon];
+
+        let mut cost_history = Vec::with_capacity(self.config.num_iterations);
+        let mut best_actions: Vec<Action<B>> = Vec::new();
+        let mut best_cost = f32::MAX;
+
+        for _iter in 0..self.config.num_iterations {
+            // 1. Sample candidates
+            let mut candidates: Vec<Vec<Vec<f64>>> = Vec::with_capacity(self.config.num_candidates);
+            for _ in 0..self.config.num_candidates {
+                let mut candidate = Vec::with_capacity(horizon);
+                for t in 0..horizon {
+                    let action_vals: Vec<f64> = (0..action_dim)
+                        .map(|d| {
+                            let noise: f64 = rng.gen::<f64>() * 2.0 - 1.0; // uniform [-1, 1]
+                            mean[t][d] + std[t][d] * noise
+                        })
+                        .collect();
+                    candidate.push(action_vals);
+                }
+                candidates.push(candidate);
+            }
+
+            // 2. Evaluate each candidate
+            let mut costs: Vec<(usize, f32)> = candidates
+                .iter()
+                .enumerate()
+                .map(|(i, candidate)| {
+                    let actions: Vec<Action<B>> = candidate
+                        .iter()
+                        .map(|a| {
+                            let data: Vec<f32> = a.iter().map(|&v| v as f32).collect();
+                            Action::new(Tensor::from_floats(
+                                burn::tensor::TensorData::new(data, [1, action_dim]),
+                                &device,
+                            ))
+                        })
+                        .collect();
+
+                    let cost: f32 = world_model
+                        .evaluate_plan(initial_state, &actions, goal)
+                        .value
+                        .into_scalar()
+                        .elem();
+                    (i, cost)
+                })
+                .collect();
+
+            // 3. Sort by cost and select elites
+            costs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            let num_elites = self.config.num_elites.min(costs.len());
+
+            // Track best
+            if costs[0].1 < best_cost {
+                best_cost = costs[0].1;
+                let best_idx = costs[0].0;
+                best_actions = candidates[best_idx]
+                    .iter()
+                    .map(|a: &Vec<f64>| {
+                        let data: Vec<f32> = a.iter().map(|&v| v as f32).collect();
+                        Action::new(Tensor::from_floats(
+                            burn::tensor::TensorData::new(data, [1, action_dim]),
+                            &device,
+                        ))
+                    })
+                    .collect();
+            }
+            cost_history.push(best_cost);
+
+            // 4. Refit distribution to elites
+            let elite_indices: Vec<usize> = costs[..num_elites].iter().map(|(i, _)| *i).collect();
+
+            for t in 0..horizon {
+                for d in 0..action_dim {
+                    let elite_vals: Vec<f64> =
+                        elite_indices.iter().map(|&i| candidates[i][t][d]).collect();
+                    let n = elite_vals.len() as f64;
+                    let new_mean = elite_vals.iter().sum::<f64>() / n;
+                    let new_var = elite_vals
+                        .iter()
+                        .map(|&v| (v - new_mean).powi(2))
+                        .sum::<f64>()
+                        / n.max(1.0);
+                    mean[t][d] = new_mean;
+                    std[t][d] = new_var.sqrt().max(0.01); // minimum std
+                }
+            }
+        }
+
+        PlanResult {
+            actions: best_actions,
+            cost: best_cost,
+            cost_history,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use burn::prelude::*;
     use burn::tensor::ElementConversion;
     use burn_ndarray::NdArray;
     use proptest::prelude::*;
@@ -230,6 +409,81 @@ mod tests {
             .into_scalar()
             .elem();
         assert!(cost.abs() < 1e-6, "cost at goal should be ~0, got {cost}");
+    }
+
+    #[test]
+    fn test_random_shooting_planner_finds_goal() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        let config = RandomShootingConfig {
+            num_candidates: 128,
+            num_iterations: 10,
+            num_elites: 16,
+            init_std: 2.0,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+
+        let result = planner.plan(&model, &initial, &goal, 1, 8, &mut rng);
+
+        // The planner should find a plan with cost lower than the no-action baseline
+        let baseline_cost: f32 = model
+            .evaluate_plan(&initial, &[], &goal)
+            .value
+            .into_scalar()
+            .elem();
+
+        assert!(
+            result.cost < baseline_cost,
+            "planner should beat baseline: {} vs {}",
+            result.cost,
+            baseline_cost
+        );
+        assert_eq!(result.actions.len(), 1);
+        assert_eq!(result.cost_history.len(), 10);
+    }
+
+    #[test]
+    fn test_random_shooting_planner_cost_decreases() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        let config = RandomShootingConfig {
+            num_candidates: 64,
+            num_iterations: 5,
+            num_elites: 8,
+            init_std: 1.0,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(99);
+
+        let result = planner.plan(&model, &initial, &goal, 2, 8, &mut rng);
+
+        // Cost history should be monotonically non-increasing (best-so-far tracking)
+        for w in result.cost_history.windows(2) {
+            assert!(
+                w[1] <= w[0],
+                "cost history should be non-increasing: {} -> {}",
+                w[0],
+                w[1]
+            );
+        }
+    }
+
+    #[test]
+    fn test_random_shooting_planner_default_config() {
+        let config = RandomShootingConfig::default();
+        assert_eq!(config.num_candidates, 64);
+        assert_eq!(config.num_iterations, 5);
+        assert_eq!(config.num_elites, 8);
+        assert!((config.init_std - 1.0).abs() < 1e-10);
     }
 
     proptest! {
