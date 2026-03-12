@@ -3,7 +3,7 @@
 <applicability>
 This project benefits from multi-agent coordination due to:
 - 5-crate workspace with independent implementation paths
-- Each RFC can be implemented in parallel once dependencies are resolved
+- Remaining RFCs (002, 003, 008, 009, 010) span multiple crates
 - Testing layers (unit, BDD, differential, fuzz) are independently developable
 - Clear separation: core traits vs vision vs world vs training vs compat
 </applicability>
@@ -21,37 +21,36 @@ This project benefits from multi-agent coordination due to:
 
 <delegation_protocol>
 
-## Task Decomposition Strategy
-
-The JEPA implementation has a natural dependency graph:
+## Implementation Status & Dependency Graph
 
 ```
-RFC-001 (types, config) ← DONE (types), PENDING (config)
+RFC-001 (types, config)          ← DONE (types.rs, config.rs)
+RFC-004 (energy functions)       ← DONE (energy.rs: L2, Cosine, SmoothL1)
+RFC-005 (masking strategies)     ← DONE (masking.rs: Block, Spatiotemporal, MultiBlock)
+RFC-006 (collapse prevention)    ← DONE (collapse.rs: VICReg, BarlowTwins)
+RFC-007 (EMA target encoder)     ← DONE (ema.rs: Ema, CosineMomentumSchedule)
     ↓
-RFC-004 (energy) ─────────────────┐
-RFC-005 (masking) ────────────────┤
-RFC-006 (collapse/VICReg) ────────┤
-RFC-007 (EMA) ────────────────────┤
-    ↓                              ↓
-RFC-002 (encoder) ──────→ RFC-003 (predictor)
-                              ↓
-                    RFC-008 (training loop)
-                              ↓
-              RFC-009 (world model) ← RFC-010 (hierarchical)
+RFC-002 (encoder)                ← PARTIAL (trait done; ViT impl needed in jepa-vision)
+    ↓
+RFC-003 (predictor)              ← PARTIAL (trait done; cross-attention impl needed)
+    ↓
+RFC-008 (training loop)          ← STUB (jepa-train crate)
+    ↓
+RFC-009 (world model)            ← STUB (jepa-world crate)
+RFC-010 (hierarchical JEPA)      ← STUB (jepa-world crate)
 ```
 
-**Parallelizable immediately** (no inter-RFC dependencies):
-- RFC-004: Energy functions (jepa-core/energy.rs)
-- RFC-005: Masking strategies (jepa-core/masking.rs)
-- RFC-006: Collapse prevention (jepa-core/collapse.rs)
-- RFC-007: EMA (jepa-core/ema.rs)
-- RFC-001 remainder: JepaConfig (jepa-core/config.rs)
+**Parallelizable now** (independent crates/modules):
+- RFC-002 ViT implementation (jepa-vision: vit.rs, patch.rs, rope.rs)
+- RFC-003 cross-attention predictor (jepa-core or jepa-vision)
+- jepa-compat checkpoint loading (safetensors.rs, keymap.rs)
+- BDD test wiring (specs/gherkin → step definitions)
+- Differential test fixtures (Python reference generation)
 
 **Must serialize**:
-- RFC-002 (encoder) depends on types + config
-- RFC-003 (predictor) depends on encoder + types
-- RFC-008 (training) depends on all core traits
+- RFC-008 (training loop) depends on encoder + predictor implementations
 - RFC-009/010 depend on training loop
+- Any changes to jepa-core public traits (shared dependency)
 
 </delegation_protocol>
 
@@ -67,20 +66,20 @@ Every delegated implementation task must include:
 **Context**:
 - Read first: SPECIFICATION.md section for RFC-XXX
 - Read: specs/gherkin/features.feature (relevant scenarios)
-- Modify: crates/jepa-core/src/[module].rs
-- Verify: crates/jepa-core/src/lib.rs re-export resolves
+- Modify: crates/[crate]/src/[module].rs
+- Reference: crates/jepa-core/src/ for established patterns
 
 **Acceptance criteria**:
-- [ ] Type/trait defined matching RFC specification
+- [ ] Type/trait/struct defined matching RFC specification
 - [ ] Unit tests covering all RFC test vectors
-- [ ] Property tests for numerical invariants
-- [ ] `cargo test -p jepa-core` passes
-- [ ] `cargo clippy -p jepa-core` — zero warnings
-- [ ] Re-export in lib.rs resolves without E0432
+- [ ] Property tests for numerical invariants (where applicable)
+- [ ] `cargo test -p [crate]` passes (all 88+ existing tests must still pass)
+- [ ] `cargo clippy --all-targets` — zero warnings
+- [ ] Doc tests pass if doc examples are added
 
 **Constraints**:
-- Do NOT modify types.rs (already implemented)
-- Do NOT change the trait name (must match lib.rs re-export)
+- Do NOT modify existing jepa-core implementations without approval
+- Do NOT change public trait signatures (already tested)
 - Use `B: Backend` generic for all tensor-bearing types
 ```
 
@@ -89,15 +88,16 @@ Every delegated implementation task must include:
 <parallel_execution>
 
 Safe to parallelize:
-- RFC-004 + RFC-005 + RFC-006 + RFC-007 (independent modules, no shared mutable state)
-- Unit tests + BDD scenario implementation (different file sets)
+- ViT encoder (jepa-vision) + cross-attention predictor (independent modules)
+- jepa-compat checkpoint loading + BDD test wiring (different file sets)
 - Documentation + implementation (different files)
+- Unit tests + differential test fixture generation
 
 Must serialize:
-- Any change to types.rs (shared dependency for all modules)
+- Any change to jepa-core public traits (shared dependency for all crates)
 - Changes to lib.rs re-exports (single file, conflict-prone)
 - Cargo.toml dependency changes (workspace-wide impact)
-- Config implementation if other modules depend on it
+- Training loop implementation depends on encoder + predictor
 
 Conflict protocol:
 1. Before starting, declare which files will be modified

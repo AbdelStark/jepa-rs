@@ -1,6 +1,7 @@
 <identity>
 jepa-rs: Production-grade Rust implementation of JEPA (Joint Embedding Predictive Architecture) for self-supervised learning.
-Pre-alpha / specification phase. Most modules are placeholders awaiting implementation per SPECIFICATION.md RFCs.
+Core crate (jepa-core) has 6 fully implemented modules with 88 unit tests + 6 doc tests passing.
+Outer crates (vision, world, train, compat) are stubs awaiting RFC-002/003/008/009/010 implementation.
 </identity>
 
 <stack>
@@ -13,7 +14,7 @@ Pre-alpha / specification phase. Most modules are placeholders awaiting implemen
 | Weights I/O | safetensors  | 0.4      | PyTorch/HuggingFace checkpoint loading   |
 | Errors      | thiserror    | 2        | Derive macro for error enums             |
 | Testing     | proptest     | 1        | Property-based testing                   |
-| Benchmarks  | criterion    | 0.5      | Not yet wired up                         |
+| Benchmarks  | criterion    | 0.5      | Wired in core_bench.rs, not yet populated |
 | RNG         | rand + chacha| 0.8/0.3  | Deterministic seeded RNG                 |
 
 </stack>
@@ -21,25 +22,29 @@ Pre-alpha / specification phase. Most modules are placeholders awaiting implemen
 <structure>
 ```
 crates/
-├── jepa-core/      # Core traits + types. ONLY crate with real code. [agent: create/modify]
+├── jepa-core/      # Core traits + types — primary implementation crate [agent: create/modify]
 │   └── src/
-│       ├── lib.rs       # Module root, trait re-exports
-│       ├── types.rs     # Representation, Energy, MaskSpec, InputShape (IMPLEMENTED)
-│       ├── encoder.rs   # Encoder trait (PLACEHOLDER)
-│       ├── predictor.rs # Predictor trait (PLACEHOLDER)
-│       ├── energy.rs    # EnergyFn trait (PLACEHOLDER)
-│       ├── masking.rs   # MaskingStrategy trait (PLACEHOLDER)
-│       ├── collapse.rs  # CollapseRegularizer trait (PLACEHOLDER)
-│       ├── ema.rs       # EMA struct (PLACEHOLDER)
-│       └── config.rs    # JepaConfig (PLACEHOLDER)
-├── jepa-vision/    # Vision-specific (ViT, I-JEPA, V-JEPA) [agent: create/modify]
-├── jepa-world/     # World model / action-conditioned [agent: create/modify]
-├── jepa-train/     # Training loop utilities [agent: create/modify]
-└── jepa-compat/    # PyTorch checkpoint loading [agent: create/modify]
+│       ├── lib.rs       # Module root, trait re-exports (all resolve cleanly)
+│       ├── types.rs     # Representation, Energy, MaskSpec, InputShape (IMPLEMENTED, 12 tests)
+│       ├── config.rs    # JepaConfig, JepaConfigBuilder, presets (IMPLEMENTED, 18 tests)
+│       ├── encoder.rs   # Encoder trait + IdentityEncoder test helper (IMPLEMENTED, 1 test)
+│       ├── predictor.rs # Predictor trait + ZeroPredictor test helper (IMPLEMENTED, 2 tests)
+│       ├── energy.rs    # EnergyFn, L2Energy, CosineEnergy, SmoothL1Energy (IMPLEMENTED, 18 tests)
+│       ├── masking.rs   # MaskingStrategy, BlockMasking, SpatiotemporalMasking, MultiBlockMasking (IMPLEMENTED, 14 tests)
+│       ├── collapse.rs  # CollapseRegularizer, VICReg, BarlowTwins (IMPLEMENTED, 21 tests)
+│       └── ema.rs       # Ema, CosineMomentumSchedule (IMPLEMENTED, 27 tests)
+├── jepa-vision/    # Vision-specific (ViT, I-JEPA, V-JEPA) — stubs [agent: create/modify]
+│   └── src/         # vit.rs, patch.rs, rope.rs, image.rs, video.rs (all stubs)
+├── jepa-world/     # World model / action-conditioned — stubs [agent: create/modify]
+│   └── src/         # action.rs, planner.rs, hierarchy.rs, memory.rs (all stubs)
+├── jepa-train/     # Training loop utilities — stubs [agent: create/modify]
+│   └── src/         # trainer.rs, schedule.rs, checkpoint.rs, step.rs (all stubs)
+└── jepa-compat/    # PyTorch checkpoint loading — stubs [agent: create/modify]
+    └── src/         # safetensors.rs, keymap.rs, onnx.rs (all stubs)
 specs/
 └── gherkin/
-    └── features.feature  # BDD scenarios [agent: modify with care]
-SPECIFICATION.md          # RFC archive (10 RFCs) — the implementation bible [agent: READ ONLY]
+    └── features.feature  # 27 BDD scenarios across 6 features [agent: modify with care]
+SPECIFICATION.md          # RFC archive (10 RFCs, 1105 lines) — the implementation bible [agent: READ ONLY]
 ```
 </structure>
 
@@ -47,13 +52,16 @@ SPECIFICATION.md          # RFC archive (10 RFCs) — the implementation bible [
 
 | Task            | Command                           | Notes                                       |
 |-----------------|-----------------------------------|---------------------------------------------|
-| Build           | `cargo build`                     | Currently fails — see known issues          |
-| Build (release) | `cargo build --release`           | Same failure state                          |
-| Test            | `cargo test`                      | Only jepa-core/types.rs has tests (6 pass)  |
+| Build           | `cargo build`                     | Succeeds — all workspace crates compile     |
+| Build (release) | `cargo build --release`           | Succeeds                                    |
+| Test            | `cargo test`                      | 88 unit + 6 doc tests pass (jepa-core)      |
 | Test (single)   | `cargo test -p jepa-core`         | Target specific crate                       |
+| Test (named)    | `cargo test -p jepa-core -- [name]` | Run a single test by name                 |
+| Test (verbose)  | `cargo test -p jepa-core -- --nocapture` | Show println output                  |
 | Clippy          | `cargo clippy --all-targets`      | No clippy.toml — uses defaults              |
 | Format          | `cargo fmt`                       | No rustfmt.toml — uses defaults             |
 | Format (check)  | `cargo fmt -- --check`            | CI-style check                              |
+| Check           | `cargo check`                     | Fast compile check, no codegen              |
 | Docs            | `cargo doc --open`                | Generate + open docs                        |
 
 </commands>
@@ -72,11 +80,13 @@ SPECIFICATION.md          # RFC archive (10 RFCs) — the implementation bible [
   <do>
     — Make all tensor types generic over `B: Backend` for backend-agnostic code
     — Use `Representation<B>`, `Energy<B>` wrapper types instead of raw tensors
-    — Validate inputs at construction (see MaskSpec::validate pattern)
+    — Validate inputs at construction (see MaskSpec::validate, JepaConfig::validate patterns)
     — Write tests BEFORE implementation (TDD per SPECIFICATION.md)
     — Reference the specific RFC in SPECIFICATION.md when implementing a module
     — Use deterministic seeded RNG (rand_chacha) for reproducibility
     — Keep trait definitions minimal — one concern per trait
+    — Use `#[derive(Debug, Clone)]` on all public structs
+    — Use `thiserror::Error` for error enums with descriptive messages
   </do>
   <dont>
     — Don't use raw `Tensor<B, N>` in public APIs — wrap in semantic types
@@ -84,6 +94,7 @@ SPECIFICATION.md          # RFC archive (10 RFCs) — the implementation bible [
     — Don't skip validation — mask indices, tensor shapes, config values must be checked
     — Don't add Python/PyTorch patterns — use idiomatic Rust (Result, iterators, ownership)
     — Don't implement beyond what the RFC specifies without discussion
+    — Don't use `unwrap()` in library code — return Result or propagate with `?`
   </dont>
 </patterns>
 
@@ -116,11 +127,15 @@ SPECIFICATION.md          # RFC archive (10 RFCs) — the implementation bible [
   5. Use burn-ndarray backend for test execution: `type TestBackend = burn_ndarray::NdArray<f32>;`
 </add_tests>
 
-<fix_build>
-  Current state: lib.rs re-exports items from placeholder modules that don't define them.
-  To fix: implement the trait/struct in each placeholder module, OR comment out the re-export.
-  The placeholder modules contain only doc comments — no actual type definitions.
-</fix_build>
+<next_implementation_targets>
+  Priority order for remaining work:
+  1. RFC-002: Encoder (jepa-core trait done; ViT impl needed in jepa-vision)
+  2. RFC-003: Predictor (jepa-core trait done; cross-attention impl needed)
+  3. RFC-008: Training loop (jepa-train — depends on all core traits)
+  4. RFC-009: Action-conditioned world model (jepa-world)
+  5. RFC-010: Hierarchical JEPA (jepa-world)
+  6. PyTorch checkpoint loading (jepa-compat)
+</next_implementation_targets>
 </workflows>
 
 <boundaries>
@@ -150,9 +165,10 @@ SPECIFICATION.md          # RFC archive (10 RFCs) — the implementation bible [
 
 | Symptom                                  | Cause                                                  | Fix                                              |
 |------------------------------------------|--------------------------------------------------------|--------------------------------------------------|
-| `cargo build` fails with E0432 errors    | lib.rs re-exports types from placeholder modules       | Implement the types, or comment out re-exports   |
-| 7 unresolved import errors               | JepaConfig, Encoder, EnergyFn, etc. not yet defined   | Implement per SPECIFICATION.md RFCs              |
-| Tests only run for types.rs              | Other modules are placeholders with no test targets    | Expected — implement modules to add tests        |
+| Slow first build (~10s)                  | burn macro expansion is heavy                          | Expected — use `cargo check` for faster iteration |
+| proptest shrinking takes long            | Input space too large                                  | Add `ProptestConfig::with_cases(100)` annotation |
+| Float assertion fails intermittently     | Tolerance too tight for accumulated ops                | Widen to 1e-4 for chained operations             |
+| Stub crate tests show 0 tests           | Vision/world/train/compat modules are stubs            | Expected — implement modules to add tests        |
 
 </known_issues>
 
@@ -161,6 +177,7 @@ SPECIFICATION.md          # RFC archive (10 RFCs) — the implementation bible [
   2. Check SPECIFICATION.md for the intended design of the failing component
   3. `cargo clean && cargo build` if incremental compilation is stale
   4. For burn API questions, check burn 0.16 docs
+  5. Use `cargo check` for fast compile feedback without codegen
 </recovery_patterns>
 </troubleshooting>
 
@@ -186,5 +203,8 @@ Modular skills in .codex/skills/ (symlinked at .claude/skills/ and .agents/skill
   — Placeholder modules with re-exports cause compile errors. When stubbing, either define the type or don't re-export.
   — burn 0.16 uses `Backend` trait — all tensor ops must be generic over backend.
   — SPECIFICATION.md is the single source of truth for API design. Always read the RFC before implementing.
+  — proptest is excellent for numerical invariants (energy >= 0, convergence, bounds, determinism).
+  — JepaConfig builder pattern with validation-on-build prevents invalid configurations at construction.
+  — VICReg and BarlowTwins implementations need careful attention to tensor broadcasting and covariance matrix computation.
 </lessons_learned>
 </memory>
