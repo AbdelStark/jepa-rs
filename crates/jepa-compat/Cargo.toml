@@ -3,7 +3,16 @@ name = "jepa-compat"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "PyTorch checkpoint compatibility: load safetensors weights into jepa-rs models"
 
 [dependencies]
 jepa-core = { path = "../jepa-core" }
 burn = { workspace = true }
+safetensors = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+half = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+burn-ndarray = { workspace = true }
