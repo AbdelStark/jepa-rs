@@ -1,11 +1,12 @@
 //! Collapse prevention regularizers for JEPA.
 //!
-//! Implements RFC-006 (Collapse Prevention / VICReg).
+//! Implements RFC-006 (Collapse Prevention).
 //!
 //! Without collapse prevention, JEPA training produces trivial solutions
-//! where all representations collapse to a constant. VICReg (Variance-
-//! Invariance-Covariance Regularization) is the primary method used
-//! by JEPA-family models.
+//! where all representations collapse to a constant. This module provides
+//! two regularizers:
+//! - [`VICReg`] (Variance-Invariance-Covariance Regularization) — primary method
+//! - [`BarlowTwins`] — redundancy reduction via cross-correlation identity matching
 
 use burn::tensor::{backend::Backend, Tensor};
 
@@ -155,6 +156,111 @@ impl<B: Backend> CollapseRegularizer<B> for VICReg {
     }
 }
 
+/// Barlow Twins regularization.
+///
+/// Prevents collapse by making the cross-correlation matrix between two
+/// representation branches approach the identity matrix. This enforces:
+/// 1. **Invariance**: diagonal elements ≈ 1 (paired representations are similar)
+/// 2. **Redundancy reduction**: off-diagonal elements ≈ 0 (dimensions are decorrelated)
+///
+/// Reference: Zbontar et al. (2021), "Barlow Twins: Self-Supervised Learning via
+/// Redundancy Reduction", ICML.
+pub struct BarlowTwins {
+    /// Weight for the off-diagonal (redundancy reduction) term (default: 0.005).
+    ///
+    /// The on-diagonal (invariance) term always has weight 1.0.
+    /// Lower lambda means less penalty on redundant features.
+    pub lambda_bt: f64,
+}
+
+impl Default for BarlowTwins {
+    fn default() -> Self {
+        Self { lambda_bt: 0.005 }
+    }
+}
+
+/// Decomposed Barlow Twins loss components.
+#[derive(Debug, Clone)]
+pub struct BarlowTwinsLoss<B: Backend> {
+    /// On-diagonal loss: `sum((1 - diag(C))^2)`. Shape: `[1]`
+    pub on_diagonal: Tensor<B, 1>,
+    /// Off-diagonal loss: `sum(off_diag(C)^2)`. Shape: `[1]`
+    pub off_diagonal: Tensor<B, 1>,
+}
+
+impl<B: Backend> BarlowTwinsLoss<B> {
+    /// Total loss: on_diagonal + lambda * off_diagonal.
+    pub fn total(&self) -> Tensor<B, 1> {
+        self.on_diagonal.clone() + self.off_diagonal.clone()
+    }
+}
+
+impl BarlowTwins {
+    /// Create a new Barlow Twins regularizer with the given lambda.
+    pub fn new(lambda_bt: f64) -> Self {
+        Self { lambda_bt }
+    }
+
+    /// Compute the decomposed Barlow Twins loss.
+    ///
+    /// 1. Standardize each branch (zero mean, unit std per dimension)
+    /// 2. Compute the cross-correlation matrix C = (1/N) * Z_a^T * Z_b
+    /// 3. On-diagonal: penalize deviation from 1 (invariance)
+    /// 4. Off-diagonal: penalize non-zero elements (redundancy reduction)
+    ///
+    /// # Arguments
+    /// * `z_a` - Representations from branch A. Shape: `[batch, embed_dim]`
+    /// * `z_b` - Representations from branch B. Shape: `[batch, embed_dim]`
+    pub fn compute<B: Backend>(
+        &self,
+        z_a: &Tensor<B, 2>,
+        z_b: &Tensor<B, 2>,
+    ) -> BarlowTwinsLoss<B> {
+        let [batch, embed_dim] = z_a.dims();
+        let n = batch as f64;
+        let eps = 1e-5;
+
+        // Standardize each branch: z_norm = (z - mean) / std
+        let z_a_norm = standardize::<B>(z_a, n, eps);
+        let z_b_norm = standardize::<B>(z_b, n, eps);
+
+        // Cross-correlation matrix: C = (1/N) * Z_a^T * Z_b
+        // Shape: [embed_dim, embed_dim]
+        let cross_corr = z_a_norm.transpose().matmul(z_b_norm) / n;
+
+        // On-diagonal: sum of (1 - C_ii)^2
+        let diag_mask = Tensor::<B, 2>::eye(embed_dim, &cross_corr.device());
+        let diag_values = cross_corr.clone() * diag_mask.clone();
+        let on_diag_diff = diag_values - diag_mask;
+        let on_diag_loss = (on_diag_diff.clone() * on_diag_diff).sum().reshape([1]);
+
+        // Off-diagonal: sum of C_ij^2 for i != j
+        let off_diag_mask = Tensor::<B, 2>::eye(embed_dim, &cross_corr.device()).neg() + 1.0;
+        let off_diag = cross_corr * off_diag_mask;
+        let off_diag_loss = ((off_diag.clone() * off_diag).sum() * self.lambda_bt).reshape([1]);
+
+        BarlowTwinsLoss {
+            on_diagonal: on_diag_loss,
+            off_diagonal: off_diag_loss,
+        }
+    }
+}
+
+/// Standardize a batch of representations to zero mean, unit std per dimension.
+fn standardize<B: Backend>(z: &Tensor<B, 2>, n: f64, eps: f64) -> Tensor<B, 2> {
+    let mean = z.clone().mean_dim(0); // [1, embed_dim]
+    let centered = z.clone() - mean;
+    let var = (centered.clone() * centered.clone()).sum_dim(0) / (n - 1.0).max(1.0);
+    let std = (var + eps).sqrt();
+    centered / std
+}
+
+impl<B: Backend> CollapseRegularizer<B> for BarlowTwins {
+    fn loss(&self, z_a: &Tensor<B, 2>, z_b: &Tensor<B, 2>) -> Tensor<B, 1> {
+        self.compute(z_a, z_b).total()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +366,137 @@ mod tests {
         let loss: Tensor<TestBackend, 1> = vicreg.loss(&z, &z);
         let val: f32 = loss.into_scalar().elem();
         assert!(val.is_finite(), "loss should be finite, got {val}");
+    }
+
+    // --- Barlow Twins tests ---
+
+    #[test]
+    fn test_barlow_twins_default_params() {
+        let bt = BarlowTwins::default();
+        assert!((bt.lambda_bt - 0.005).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_barlow_twins_identical_inputs_low_on_diagonal_loss() {
+        // Identical inputs → cross-correlation diagonal ≈ 1 → on_diagonal loss ≈ 0
+        let bt = BarlowTwins::default();
+        let z: Tensor<TestBackend, 2> = Tensor::random(
+            [64, 32],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+        let loss = bt.compute(&z, &z);
+        let on_diag: f32 = loss.on_diagonal.into_scalar().elem();
+        assert!(
+            on_diag < 1.0,
+            "identical inputs should have low on-diagonal loss, got {on_diag}"
+        );
+    }
+
+    #[test]
+    fn test_barlow_twins_loss_is_finite() {
+        let bt = BarlowTwins::default();
+        let z_a: Tensor<TestBackend, 2> = Tensor::random(
+            [32, 16],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+        let z_b: Tensor<TestBackend, 2> = Tensor::random(
+            [32, 16],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+        let loss = bt.compute(&z_a, &z_b);
+        let total: f32 = loss.total().into_scalar().elem();
+        assert!(
+            total.is_finite(),
+            "total loss should be finite, got {total}"
+        );
+    }
+
+    #[test]
+    fn test_barlow_twins_loss_is_non_negative() {
+        let bt = BarlowTwins::default();
+        let z: Tensor<TestBackend, 2> = Tensor::random(
+            [32, 16],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+        let loss = bt.compute(&z, &z);
+        let on_diag: f32 = loss.on_diagonal.into_scalar().elem();
+        let off_diag: f32 = loss.off_diagonal.into_scalar().elem();
+        assert!(
+            on_diag >= -1e-6,
+            "on_diagonal should be >= 0, got {on_diag}"
+        );
+        assert!(
+            off_diag >= -1e-6,
+            "off_diagonal should be >= 0, got {off_diag}"
+        );
+    }
+
+    #[test]
+    fn test_barlow_twins_total_equals_sum_of_components() {
+        let bt = BarlowTwins::default();
+        let z: Tensor<TestBackend, 2> = Tensor::random(
+            [32, 16],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+        let loss = bt.compute(&z, &z);
+        let total: f32 = loss.total().into_scalar().elem();
+        let on_diag: f32 = loss.on_diagonal.into_scalar().elem();
+        let off_diag: f32 = loss.off_diagonal.into_scalar().elem();
+        assert!(
+            (total - (on_diag + off_diag)).abs() < 1e-4,
+            "total should equal on_diag + off_diag: {total} vs {} + {}",
+            on_diag,
+            off_diag,
+        );
+    }
+
+    #[test]
+    fn test_barlow_twins_implements_collapse_regularizer() {
+        let bt = BarlowTwins::default();
+        let z: Tensor<TestBackend, 2> = Tensor::random(
+            [16, 32],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+        let loss: Tensor<TestBackend, 1> = CollapseRegularizer::loss(&bt, &z, &z);
+        let val: f32 = loss.into_scalar().elem();
+        assert!(
+            val.is_finite(),
+            "Barlow Twins loss should be finite, got {val}"
+        );
+    }
+
+    #[test]
+    fn test_barlow_twins_higher_lambda_increases_off_diagonal_penalty() {
+        let z_a: Tensor<TestBackend, 2> = Tensor::random(
+            [32, 16],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+        let z_b: Tensor<TestBackend, 2> = Tensor::random(
+            [32, 16],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+
+        let bt_low = BarlowTwins::new(0.001);
+        let bt_high = BarlowTwins::new(0.1);
+
+        let loss_low: f32 = bt_low.compute(&z_a, &z_b).off_diagonal.into_scalar().elem();
+        let loss_high: f32 = bt_high
+            .compute(&z_a, &z_b)
+            .off_diagonal
+            .into_scalar()
+            .elem();
+
+        assert!(
+            loss_high > loss_low,
+            "higher lambda should increase off-diagonal penalty: {loss_high} vs {loss_low}"
+        );
     }
 }

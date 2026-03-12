@@ -144,15 +144,9 @@ where
             .predictor
             .predict(&context_repr, &target_positions, None);
 
-        // 5. Extract actual target tokens from target representation
-        //    We take the first num_targets tokens as a proxy for the masked target positions.
-        //    In a full implementation, this would use scatter/gather with mask.target_indices.
+        // 5. Extract actual target tokens from target representation using mask indices
         let embed_dim = target_repr.embed_dim();
-        let target_slice = Representation::new(target_repr.embeddings.clone().slice([
-            0..batch,
-            0..num_targets,
-            0..embed_dim,
-        ]));
+        let target_slice = target_repr.gather(&mask.target_indices);
 
         // 6. Compute energy (prediction loss)
         let energy = self.energy_fn.compute(&predicted, &target_slice);

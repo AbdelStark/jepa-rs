@@ -9,7 +9,10 @@ description = "Action-conditioned world model and hierarchical JEPA (H-JEPA)"
 jepa-core = { path = "../jepa-core" }
 burn = { workspace = true }
 thiserror = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 burn-ndarray = { workspace = true }
 proptest = { workspace = true }
+rand_chacha = { workspace = true }
+rand = { workspace = true }
