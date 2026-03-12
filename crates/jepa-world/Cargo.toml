@@ -16,6 +16,11 @@ burn-ndarray = { workspace = true }
 proptest = { workspace = true }
 rand_chacha = { workspace = true }
 rand = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "world_bench"
+harness = false
 
 [[example]]
 name = "world_model_planning"

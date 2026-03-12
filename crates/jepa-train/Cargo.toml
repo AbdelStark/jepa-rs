@@ -18,3 +18,8 @@ burn-ndarray = { workspace = true }
 rand_chacha = { workspace = true }
 serde_json = { workspace = true }
 proptest = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "train_bench"
+harness = false
