@@ -482,4 +482,140 @@ mod tests {
             "with reg_weight=0, total should equal energy: {energy_val} vs {total_val}"
         );
     }
+
+    #[test]
+    fn test_jepa_forward_step_with_cosine_energy() {
+        use jepa_core::energy::CosineEnergy;
+
+        let embed_dim = 16;
+        let context_encoder = TestEncoder { embed_dim };
+        let target_encoder = TestEncoder { embed_dim };
+        let predictor = TestPredictor { embed_dim };
+        let energy_fn = CosineEnergy;
+        let regularizer = VICReg::default();
+        let masking = BlockMasking {
+            num_targets: 2,
+            target_scale: (0.15, 0.3),
+            target_aspect_ratio: (0.75, 1.5),
+        };
+
+        let components = JepaComponents::new(
+            &context_encoder,
+            &target_encoder,
+            &predictor,
+            &energy_fn,
+            &regularizer,
+            &masking,
+            1.0,
+        );
+
+        let input: Tensor<TestBackend, 4> = Tensor::ones([2, 1, 4, 4], &device());
+        let input_shape = InputShape::Image {
+            height: 4,
+            width: 4,
+        };
+
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+        let output = components.forward_step(&input, &input_shape, &mut rng);
+
+        let energy_val: f32 = output.energy.value.into_scalar().elem();
+        assert!(
+            energy_val.is_finite(),
+            "cosine energy should be finite: {energy_val}"
+        );
+
+        let total_val: f32 = output.total_loss.into_scalar().elem();
+        assert!(
+            total_val.is_finite(),
+            "total loss with cosine energy should be finite: {total_val}"
+        );
+    }
+
+    #[test]
+    fn test_jepa_forward_step_with_smooth_l1_energy() {
+        use jepa_core::energy::SmoothL1Energy;
+
+        let embed_dim = 16;
+        let context_encoder = TestEncoder { embed_dim };
+        let target_encoder = TestEncoder { embed_dim };
+        let predictor = TestPredictor { embed_dim };
+        let energy_fn = SmoothL1Energy::new(1.0);
+        let regularizer = VICReg::default();
+        let masking = BlockMasking {
+            num_targets: 2,
+            target_scale: (0.15, 0.3),
+            target_aspect_ratio: (0.75, 1.5),
+        };
+
+        let components = JepaComponents::new(
+            &context_encoder,
+            &target_encoder,
+            &predictor,
+            &energy_fn,
+            &regularizer,
+            &masking,
+            1.0,
+        );
+
+        let input: Tensor<TestBackend, 4> = Tensor::ones([2, 1, 4, 4], &device());
+        let input_shape = InputShape::Image {
+            height: 4,
+            width: 4,
+        };
+
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+        let output = components.forward_step(&input, &input_shape, &mut rng);
+
+        let energy_val: f32 = output.energy.value.into_scalar().elem();
+        assert!(
+            energy_val.is_finite(),
+            "smooth L1 energy should be finite: {energy_val}"
+        );
+        assert!(
+            energy_val >= 0.0,
+            "smooth L1 energy should be non-negative: {energy_val}"
+        );
+    }
+
+    #[test]
+    fn test_jepa_forward_step_with_barlow_twins_regularizer() {
+        use jepa_core::collapse::BarlowTwins;
+
+        let embed_dim = 16;
+        let context_encoder = TestEncoder { embed_dim };
+        let target_encoder = TestEncoder { embed_dim };
+        let predictor = TestPredictor { embed_dim };
+        let energy_fn = L2Energy;
+        let regularizer = BarlowTwins::default();
+        let masking = BlockMasking {
+            num_targets: 2,
+            target_scale: (0.15, 0.3),
+            target_aspect_ratio: (0.75, 1.5),
+        };
+
+        let components = JepaComponents::new(
+            &context_encoder,
+            &target_encoder,
+            &predictor,
+            &energy_fn,
+            &regularizer,
+            &masking,
+            1.0,
+        );
+
+        let input: Tensor<TestBackend, 4> = Tensor::ones([2, 1, 4, 4], &device());
+        let input_shape = InputShape::Image {
+            height: 4,
+            width: 4,
+        };
+
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+        let output = components.forward_step(&input, &input_shape, &mut rng);
+
+        let total_val: f32 = output.total_loss.into_scalar().elem();
+        assert!(
+            total_val.is_finite(),
+            "total loss with Barlow Twins should be finite: {total_val}"
+        );
+    }
 }

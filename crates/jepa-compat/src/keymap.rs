@@ -24,6 +24,19 @@
 use std::collections::HashMap;
 
 /// A mapping rule that transforms a PyTorch key to a burn key.
+///
+/// # Example
+///
+/// ```
+/// use jepa_compat::keymap::{KeyMapping, resolve_key};
+///
+/// let mappings = vec![KeyMapping {
+///     pytorch_pattern: "blocks.{L}.norm.weight".to_string(),
+///     burn_pattern: "blocks.{L}.norm.weight".to_string(),
+/// }];
+/// let result = resolve_key("blocks.3.norm.weight", &mappings);
+/// assert_eq!(result, Some("blocks.3.norm.weight".to_string()));
+/// ```
 #[derive(Debug, Clone)]
 pub struct KeyMapping {
     /// PyTorch key pattern (may contain `{layer}` placeholder).
@@ -88,6 +101,21 @@ fn km(pytorch: &str, burn: &str) -> KeyMapping {
 /// Resolve a PyTorch key to its burn equivalent using the provided mappings.
 ///
 /// Returns `None` if no mapping matches the key.
+///
+/// # Example
+///
+/// ```
+/// use jepa_compat::keymap::{ijepa_vit_keymap, resolve_key};
+///
+/// let mappings = ijepa_vit_keymap();
+///
+/// // attn.proj is remapped to attn.out_proj in burn
+/// let result = resolve_key("blocks.0.attn.proj.weight", &mappings);
+/// assert_eq!(result, Some("blocks.0.attn.out_proj.weight".to_string()));
+///
+/// // Unknown keys return None
+/// assert_eq!(resolve_key("unknown.key", &mappings), None);
+/// ```
 pub fn resolve_key(pytorch_key: &str, mappings: &[KeyMapping]) -> Option<String> {
     for mapping in mappings {
         if let Some(burn_key) =
@@ -136,7 +164,17 @@ fn try_match(pytorch_pattern: &str, burn_pattern: &str, key: &str) -> Option<Str
 /// Strip common checkpoint prefixes from keys.
 ///
 /// PyTorch checkpoints often wrap models with `module.`, `encoder.`,
-/// or `backbone.` prefixes. This function strips them.
+/// or `backbone.` prefixes. This function strips them recursively.
+///
+/// # Example
+///
+/// ```
+/// use jepa_compat::keymap::strip_prefix;
+///
+/// assert_eq!(strip_prefix("module.norm.weight"), "norm.weight");
+/// assert_eq!(strip_prefix("module.encoder.norm.weight"), "norm.weight");
+/// assert_eq!(strip_prefix("norm.weight"), "norm.weight");
+/// ```
 pub fn strip_prefix(key: &str) -> &str {
     let prefixes = ["module.", "encoder.", "backbone.", "model."];
     for prefix in &prefixes {

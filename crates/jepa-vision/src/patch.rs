@@ -15,6 +15,21 @@ use burn::prelude::*;
 use burn::tensor::backend::Backend;
 
 /// Configuration for patch embedding.
+///
+/// # Example
+///
+/// ```
+/// use jepa_vision::patch::PatchEmbeddingConfig;
+/// use burn_ndarray::NdArray;
+/// use burn::prelude::*;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let config = PatchEmbeddingConfig::new(3, 16, 16, 256);
+/// let patch_embed = config.init::<B>(&device);
+/// assert_eq!(patch_embed.num_patches(224, 224), 196);
+/// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PatchEmbeddingConfig {
     /// Number of input channels (e.g., 3 for RGB).

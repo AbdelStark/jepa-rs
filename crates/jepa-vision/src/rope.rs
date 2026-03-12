@@ -12,6 +12,21 @@ use burn::prelude::*;
 use burn::tensor::backend::Backend;
 
 /// Configuration for 2D Rotary Position Embedding.
+///
+/// # Example
+///
+/// ```
+/// use jepa_vision::rope::RotaryPositionEncoding2DConfig;
+/// use burn_ndarray::NdArray;
+/// use burn::prelude::*;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let config = RotaryPositionEncoding2DConfig::new(64, 14, 14);
+/// let rope = config.init::<B>(&device);
+/// assert_eq!(rope.embed_dim(), 64);
+/// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RotaryPositionEncoding2DConfig {
     /// Embedding dimension (must be even for rotation pairs).

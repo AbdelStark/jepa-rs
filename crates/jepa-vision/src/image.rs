@@ -18,6 +18,33 @@ use jepa_core::types::Representation;
 use jepa_core::Predictor;
 
 /// Configuration for the transformer predictor.
+///
+/// # Example
+///
+/// ```
+/// use jepa_vision::image::TransformerPredictorConfig;
+/// use jepa_core::types::Representation;
+/// use jepa_core::Predictor;
+/// use burn_ndarray::NdArray;
+/// use burn::prelude::*;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let config = TransformerPredictorConfig {
+///     encoder_embed_dim: 32,
+///     predictor_embed_dim: 16,
+///     num_layers: 1,
+///     num_heads: 2,
+///     max_target_len: 64,
+/// };
+/// let predictor = config.init::<B>(&device);
+///
+/// let context = Representation::new(Tensor::zeros([1, 8, 32], &device));
+/// let target_pos: Tensor<B, 2> = Tensor::zeros([1, 4], &device);
+/// let predicted = predictor.predict(&context, &target_pos, None);
+/// assert_eq!(predicted.seq_len(), 4);
+/// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TransformerPredictorConfig {
     /// Input embedding dimension (from encoder output).
@@ -624,5 +651,72 @@ mod tests {
             .iter()
             .any(|m| m.target_indices != *first_targets);
         assert!(some_differ, "masks should vary across different seeds");
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: predictor output dimension always matches encoder_embed_dim,
+        /// regardless of number of targets.
+        #[test]
+        fn prop_predictor_output_dim_matches_encoder(
+            num_targets in 1usize..8,
+        ) {
+            let encoder_embed_dim = 32;
+            let config = TransformerPredictorConfig {
+                encoder_embed_dim,
+                predictor_embed_dim: 16,
+                num_layers: 1,
+                num_heads: 2,
+                max_target_len: 64,
+            };
+            let predictor = config.init::<TestBackend>(&device());
+
+            let context = Representation::new(Tensor::zeros([1, 8, encoder_embed_dim], &device()));
+            let target_pos: Tensor<TestBackend, 2> =
+                Tensor::zeros([1, num_targets], &device());
+            let predicted = predictor.predict(&context, &target_pos, None);
+
+            prop_assert_eq!(predicted.batch_size(), 1);
+            prop_assert_eq!(predicted.seq_len(), num_targets);
+            prop_assert_eq!(predicted.embed_dim(), encoder_embed_dim);
+        }
+
+        /// Property: predictor output is always finite for normally-distributed context.
+        #[test]
+        fn prop_predictor_output_is_finite(
+            batch in 1usize..3,
+            num_targets in 1usize..6,
+        ) {
+            let config = TransformerPredictorConfig {
+                encoder_embed_dim: 16,
+                predictor_embed_dim: 8,
+                num_layers: 1,
+                num_heads: 2,
+                max_target_len: 16,
+            };
+            let predictor = config.init::<TestBackend>(&device());
+
+            let context = Representation::new(Tensor::random(
+                [batch, 4, 16],
+                burn::tensor::Distribution::Normal(0.0, 1.0),
+                &device(),
+            ));
+            let target_pos: Tensor<TestBackend, 2> =
+                Tensor::zeros([batch, num_targets], &device());
+            let predicted = predictor.predict(&context, &target_pos, None);
+
+            let total: f32 = predicted
+                .embeddings
+                .abs()
+                .sum()
+                .into_scalar()
+                .elem();
+            prop_assert!(
+                total.is_finite(),
+                "predictor output should be finite, got {}",
+                total
+            );
+        }
     }
 }

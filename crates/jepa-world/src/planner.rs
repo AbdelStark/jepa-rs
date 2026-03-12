@@ -29,6 +29,28 @@ pub trait CostFunction<B: Backend> {
 }
 
 /// L2 cost: distance between final state and goal in representation space.
+///
+/// # Example
+///
+/// ```
+/// use burn::prelude::*;
+/// use burn_ndarray::NdArray;
+/// use jepa_core::types::Representation;
+/// use jepa_world::planner::{L2Cost, CostFunction};
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let cost = L2Cost;
+/// let state: Representation<B> = Representation::new(Tensor::zeros([1, 4, 8], &device));
+/// let goal: Representation<B> = Representation::new(Tensor::ones([1, 4, 8], &device));
+///
+/// let trajectory = vec![state];
+/// let energy = cost.total_cost(&trajectory, &goal);
+/// // Energy should be positive when state differs from goal
+/// let dims = energy.value.dims();
+/// assert_eq!(dims, [1]);
+/// ```
 pub struct L2Cost;
 
 impl<B: Backend> CostFunction<B> for L2Cost {
@@ -114,6 +136,24 @@ impl<B: Backend, D: ActionConditionedPredictor<B>, C: CostFunction<B>> WorldMode
 }
 
 /// Configuration for the random-shooting planner (CEM-style).
+///
+/// # Example
+///
+/// ```
+/// use jepa_world::planner::RandomShootingConfig;
+///
+/// let config = RandomShootingConfig {
+///     num_candidates: 128,
+///     num_iterations: 10,
+///     num_elites: 16,
+///     init_std: 2.0,
+/// };
+/// assert_eq!(config.num_candidates, 128);
+///
+/// // Default configuration is also available:
+/// let default = RandomShootingConfig::default();
+/// assert_eq!(default.num_candidates, 64);
+/// ```
 #[derive(Debug, Clone)]
 pub struct RandomShootingConfig {
     /// Number of candidate action sequences to sample per iteration.
@@ -484,6 +524,186 @@ mod tests {
         assert_eq!(config.num_iterations, 5);
         assert_eq!(config.num_elites, 8);
         assert!((config.init_std - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_cem_single_candidate() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        let config = RandomShootingConfig {
+            num_candidates: 1,
+            num_iterations: 3,
+            num_elites: 1,
+            init_std: 1.0,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+
+        let result = planner.plan(&model, &initial, &goal, 2, 8, &mut rng);
+        assert_eq!(result.actions.len(), 2);
+        assert!(result.cost.is_finite());
+        assert_eq!(result.cost_history.len(), 3);
+    }
+
+    #[test]
+    fn test_cem_elites_equal_candidates() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        // All candidates are elites — distribution refit uses all samples
+        let config = RandomShootingConfig {
+            num_candidates: 8,
+            num_iterations: 3,
+            num_elites: 8,
+            init_std: 1.0,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+
+        let result = planner.plan(&model, &initial, &goal, 1, 8, &mut rng);
+        assert!(result.cost.is_finite());
+        assert_eq!(result.actions.len(), 1);
+    }
+
+    #[test]
+    fn test_cem_elites_exceed_candidates() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        // num_elites > num_candidates — should be clamped gracefully
+        let config = RandomShootingConfig {
+            num_candidates: 4,
+            num_iterations: 2,
+            num_elites: 100,
+            init_std: 1.0,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+
+        let result = planner.plan(&model, &initial, &goal, 1, 8, &mut rng);
+        assert!(result.cost.is_finite());
+    }
+
+    #[test]
+    fn test_cem_action_dim_one() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        // Use embed_dim=1 so action_dim=1 matches for AdditiveDynamics
+        let initial = Representation::new(Tensor::zeros([1, 4, 1], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 1], &device()));
+
+        let config = RandomShootingConfig {
+            num_candidates: 16,
+            num_iterations: 3,
+            num_elites: 4,
+            init_std: 1.0,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+
+        // Minimal action dimension
+        let result = planner.plan(&model, &initial, &goal, 3, 1, &mut rng);
+        assert_eq!(result.actions.len(), 3);
+        for action in &result.actions {
+            assert_eq!(action.action_dim(), 1);
+        }
+        assert!(result.cost.is_finite());
+    }
+
+    #[test]
+    fn test_cem_single_iteration() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        let config = RandomShootingConfig {
+            num_candidates: 32,
+            num_iterations: 1,
+            num_elites: 4,
+            init_std: 1.0,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+
+        let result = planner.plan(&model, &initial, &goal, 2, 8, &mut rng);
+        assert_eq!(result.cost_history.len(), 1);
+        assert!(result.cost.is_finite());
+    }
+
+    #[test]
+    fn test_cem_very_small_init_std() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        // Very small std — all candidates will be near mean (zero)
+        let config = RandomShootingConfig {
+            num_candidates: 32,
+            num_iterations: 3,
+            num_elites: 4,
+            init_std: 1e-10,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+
+        let result = planner.plan(&model, &initial, &goal, 1, 8, &mut rng);
+        assert!(result.cost.is_finite());
+    }
+
+    #[test]
+    fn test_cem_large_init_std() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        // Very large std — wide exploration
+        let config = RandomShootingConfig {
+            num_candidates: 64,
+            num_iterations: 5,
+            num_elites: 8,
+            init_std: 1000.0,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+
+        let result = planner.plan(&model, &initial, &goal, 1, 8, &mut rng);
+        assert!(result.cost.is_finite());
+    }
+
+    #[test]
+    fn test_cem_deterministic_with_same_seed() {
+        use rand::SeedableRng;
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        let config = RandomShootingConfig {
+            num_candidates: 32,
+            num_iterations: 3,
+            num_elites: 4,
+            init_std: 1.0,
+        };
+
+        let planner = RandomShootingPlanner::new(config.clone());
+        let mut rng1 = rand_chacha::ChaCha8Rng::seed_from_u64(123);
+        let result1 = planner.plan(&model, &initial, &goal, 2, 8, &mut rng1);
+
+        let planner2 = RandomShootingPlanner::new(config);
+        let mut rng2 = rand_chacha::ChaCha8Rng::seed_from_u64(123);
+        let result2 = planner2.plan(&model, &initial, &goal, 2, 8, &mut rng2);
+
+        assert_eq!(result1.cost, result2.cost);
+        assert_eq!(result1.cost_history, result2.cost_history);
     }
 
     proptest! {

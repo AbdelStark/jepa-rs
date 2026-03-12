@@ -22,6 +22,21 @@ use crate::patch::{PatchEmbedding, PatchEmbeddingConfig};
 use crate::rope::{RotaryPositionEncoding2D, RotaryPositionEncoding2DConfig};
 
 /// Configuration for a Vision Transformer encoder.
+///
+/// # Example
+///
+/// ```
+/// use jepa_vision::vit::VitConfig;
+/// use jepa_core::Encoder;
+/// use burn_ndarray::NdArray;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let config = VitConfig::tiny_test();
+/// let encoder = config.init::<B>(&device);
+/// assert_eq!(encoder.embed_dim(), 32);
+/// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VitConfig {
     /// Number of input channels (e.g., 3 for RGB).
@@ -461,5 +476,80 @@ mod tests {
         let x: Tensor<TestBackend, 3> = Tensor::zeros([2, 8, 16], &device());
         let out = mlp.forward(x);
         assert_eq!(out.dims(), [2, 8, 16]);
+    }
+
+    use burn::tensor::ElementConversion;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: ViT encoder output is always finite (no NaN/Inf) for
+        /// small normally-distributed inputs.
+        #[test]
+        fn prop_vit_output_is_finite(batch in 1usize..3) {
+            let config = VitConfig::tiny_test();
+            let encoder = config.init::<TestBackend>(&device());
+
+            let images: Tensor<TestBackend, 4> = Tensor::random(
+                [batch, 1, 8, 8],
+                burn::tensor::Distribution::Normal(0.0, 1.0),
+                &device(),
+            );
+            let repr = encoder.forward(&images);
+
+            // Check shape
+            prop_assert_eq!(repr.batch_size(), batch);
+            prop_assert_eq!(repr.seq_len(), 16);
+            prop_assert_eq!(repr.embed_dim(), 32);
+
+            // Check finiteness: sum of abs should be finite and non-NaN
+            let total: f32 = repr.embeddings.abs().sum().into_scalar().elem();
+            prop_assert!(total.is_finite(), "ViT output should be finite, got {}", total);
+        }
+
+        /// Property: ViT encoder is deterministic — same input always produces
+        /// the same output.
+        #[test]
+        fn prop_vit_is_deterministic(batch in 1usize..3) {
+            let config = VitConfig::tiny_test();
+            let encoder = config.init::<TestBackend>(&device());
+
+            let images: Tensor<TestBackend, 4> = Tensor::ones([batch, 1, 8, 8], &device());
+            let repr1 = encoder.forward(&images);
+            let repr2 = encoder.forward(&images);
+
+            let diff: f32 = (repr1.embeddings - repr2.embeddings)
+                .abs()
+                .sum()
+                .into_scalar()
+                .elem();
+            prop_assert!(diff < 1e-6, "ViT should be deterministic, diff={}", diff);
+        }
+
+        /// Property: transformer block preserves tensor dimensions for any
+        /// valid (embed_dim, num_heads) combination where embed_dim % num_heads == 0.
+        #[test]
+        fn prop_transformer_block_preserves_shape(
+            seq_len in 2usize..8,
+            num_heads in proptest::sample::select(vec![2usize, 4]),
+        ) {
+            let embed_dim = 16; // divisible by 2 and 4
+            let block = TransformerBlockConfig {
+                embed_dim,
+                num_heads,
+                mlp_dim: embed_dim * 4,
+            }
+            .init::<TestBackend>(&device());
+
+            let x: Tensor<TestBackend, 3> = Tensor::random(
+                [1, seq_len, embed_dim],
+                burn::tensor::Distribution::Normal(0.0, 1.0),
+                &device(),
+            );
+            let out = block.forward(x);
+            prop_assert_eq!(out.dims(), [1, seq_len, embed_dim]);
+
+            let total: f32 = out.abs().sum().into_scalar().elem();
+            prop_assert!(total.is_finite(), "block output should be finite");
+        }
     }
 }

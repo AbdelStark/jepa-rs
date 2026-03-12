@@ -426,6 +426,195 @@ fn test_full_vjepa_train_step_with_spatiotemporal_masking() {
     assert!(bt_total.is_finite(), "Barlow Twins loss should be finite");
 }
 
+// ---- Cross-crate training step integration (jepa-vision + jepa-train) ----
+
+/// Integration test: jepa-train's JepaComponents with real ViT encoder + predictor.
+///
+/// This validates that the training orchestrator from jepa-train works correctly
+/// with real neural network modules from jepa-vision (not test stubs).
+#[test]
+fn test_train_forward_step_with_real_vit() {
+    use jepa_core::collapse::VICReg;
+    use jepa_core::energy::L2Energy;
+    use jepa_train::trainer::JepaComponents;
+    use rand::SeedableRng;
+
+    let config = IJepaConfig::tiny_test();
+    let model = config.init::<TestBackend>(&device());
+
+    let masking = jepa_core::masking::BlockMasking {
+        num_targets: 2,
+        target_scale: (0.15, 0.3),
+        target_aspect_ratio: (0.75, 1.5),
+    };
+    let energy_fn = L2Energy;
+    let regularizer = VICReg::default();
+
+    let components = JepaComponents::new(
+        &model.context_encoder,
+        &model.target_encoder,
+        &model.predictor,
+        &energy_fn,
+        &regularizer,
+        &masking,
+        0.1,
+    );
+
+    let images: Tensor<TestBackend, 4> = Tensor::random(
+        [2, 1, 8, 8],
+        burn::tensor::Distribution::Normal(0.0, 1.0),
+        &device(),
+    );
+    let input_shape = InputShape::Image {
+        height: 4,
+        width: 4,
+    };
+
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+    let output = components.forward_step(&images, &input_shape, &mut rng);
+
+    // All loss terms should be finite
+    let energy_val: f32 = output.energy.value.into_scalar().elem();
+    assert!(
+        energy_val.is_finite(),
+        "energy should be finite: {energy_val}"
+    );
+    assert!(
+        energy_val >= 0.0,
+        "L2 energy should be non-negative: {energy_val}"
+    );
+
+    let total_val: f32 = output.total_loss.into_scalar().elem();
+    assert!(
+        total_val.is_finite(),
+        "total loss should be finite: {total_val}"
+    );
+
+    // Predicted and target shapes should match
+    assert_eq!(output.predicted.batch_size(), 2);
+    assert_eq!(output.target.batch_size(), 2);
+    assert_eq!(output.predicted.embed_dim(), output.target.embed_dim());
+    assert_eq!(output.predicted.seq_len(), output.target.seq_len());
+
+    // Mask should be valid
+    assert!(output.mask.validate().is_ok());
+}
+
+/// Integration test: training step determinism with same seed.
+#[test]
+fn test_train_forward_step_determinism() {
+    use jepa_core::collapse::VICReg;
+    use jepa_core::energy::L2Energy;
+    use jepa_train::trainer::JepaComponents;
+    use rand::SeedableRng;
+
+    let config = IJepaConfig::tiny_test();
+    let model = config.init::<TestBackend>(&device());
+
+    let masking = jepa_core::masking::BlockMasking {
+        num_targets: 2,
+        target_scale: (0.15, 0.3),
+        target_aspect_ratio: (0.75, 1.5),
+    };
+    let energy_fn = L2Energy;
+    let regularizer = VICReg::default();
+
+    let components = JepaComponents::new(
+        &model.context_encoder,
+        &model.target_encoder,
+        &model.predictor,
+        &energy_fn,
+        &regularizer,
+        &masking,
+        0.1,
+    );
+
+    let images: Tensor<TestBackend, 4> = Tensor::ones([1, 1, 8, 8], &device());
+    let input_shape = InputShape::Image {
+        height: 4,
+        width: 4,
+    };
+
+    // Same seed → same mask
+    let mut rng1 = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+    let mut rng2 = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+    let out1 = components.forward_step(&images, &input_shape, &mut rng1);
+    let out2 = components.forward_step(&images, &input_shape, &mut rng2);
+
+    assert_eq!(
+        out1.mask.target_indices, out2.mask.target_indices,
+        "same seed should produce same mask"
+    );
+    assert_eq!(
+        out1.mask.context_indices, out2.mask.context_indices,
+        "same seed should produce same context mask"
+    );
+}
+
+/// Integration test: V-JEPA pipeline with spatiotemporal masking, cosine energy,
+/// and Barlow Twins regularization — testing all alternative module combinations.
+#[test]
+fn test_vjepa_full_pipeline_with_alternative_modules() {
+    use jepa_vision::video::VJepaConfig;
+    use rand::SeedableRng;
+
+    let config = VJepaConfig::tiny_test();
+    let model = config.init::<TestBackend>(&device());
+
+    let video: Tensor<TestBackend, 5> = Tensor::random(
+        [1, 1, 4, 8, 8],
+        burn::tensor::Distribution::Normal(0.0, 1.0),
+        &device(),
+    );
+
+    // Encode
+    let context_repr = model.context_encoder.forward(&video);
+    let target_repr = model.target_encoder.forward(&video);
+    assert_eq!(context_repr.seq_len(), 32);
+
+    // Spatiotemporal mask
+    let masking = jepa_core::masking::SpatiotemporalMasking {
+        num_targets: 2,
+        temporal_extent: (1, 2),
+        spatial_scale: (0.1, 0.2),
+    };
+    let shape = InputShape::Video {
+        frames: 2,
+        height: 4,
+        width: 4,
+    };
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+    let mask = masking.generate_mask(&shape, &mut rng);
+    assert!(mask.validate().is_ok());
+
+    // Gather and predict
+    let target_gathered = target_repr.gather(&mask.target_indices);
+    let num_targets = mask.target_indices.len();
+    let target_pos: Tensor<TestBackend, 2> = Tensor::zeros([1, num_targets], &device());
+    let predicted = model.predictor.predict(&context_repr, &target_pos, None);
+
+    // Test CosineEnergy (alternative to L2)
+    let cosine_energy = jepa_core::energy::CosineEnergy.compute(&predicted, &target_gathered);
+    let cosine_val: f32 = cosine_energy.value.into_scalar().elem();
+    assert!(cosine_val.is_finite(), "cosine energy should be finite");
+
+    // Test SmoothL1Energy (alternative to L2)
+    let smooth_energy =
+        jepa_core::energy::SmoothL1Energy::new(1.0).compute(&predicted, &target_gathered);
+    let smooth_val: f32 = smooth_energy.value.into_scalar().elem();
+    assert!(smooth_val.is_finite(), "smooth L1 energy should be finite");
+    assert!(smooth_val >= 0.0, "smooth L1 energy should be non-negative");
+
+    // Test BarlowTwins regularization (alternative to VICReg)
+    let embed_dim = predicted.embed_dim();
+    let pred_flat = predicted.embeddings.reshape([num_targets, embed_dim]);
+    let target_flat = target_gathered.embeddings.reshape([num_targets, embed_dim]);
+    let bt = jepa_core::collapse::BarlowTwins::default();
+    let bt_loss = bt.compute(&pred_flat, &target_flat);
+    let bt_total: f32 = bt_loss.total().into_scalar().elem();
+    assert!(bt_total.is_finite(), "Barlow Twins loss should be finite");
+}
+
 /// V-JEPA grid dimensions match config expectations.
 #[test]
 fn test_vjepa_grid_dimensions() {

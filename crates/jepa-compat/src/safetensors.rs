@@ -46,6 +46,25 @@ pub enum LoadError {
 }
 
 /// A loaded tensor with its metadata.
+///
+/// # Example
+///
+/// ```
+/// use jepa_compat::safetensors::LoadedTensor;
+/// use burn_ndarray::NdArray;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let tensor = LoadedTensor {
+///     data: vec![1.0, 2.0, 3.0, 4.0],
+///     shape: vec![2, 2],
+///     original_key: "module.weight".to_string(),
+///     burn_key: "weight".to_string(),
+/// };
+/// let burn_tensor: burn::tensor::Tensor<B, 2> = tensor.to_tensor(&device);
+/// assert_eq!(burn_tensor.dims(), [2, 2]);
+/// ```
 #[derive(Debug, Clone)]
 pub struct LoadedTensor {
     /// The tensor data as f32 values.
