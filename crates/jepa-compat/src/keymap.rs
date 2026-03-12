@@ -269,4 +269,92 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_vjepa_keymap_includes_tubelet_embed() {
+        let mappings = vjepa_vit_keymap();
+        let result = resolve_key("patch_embed.proj.weight", &mappings);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_strip_prefix_all_known_prefixes() {
+        assert_eq!(strip_prefix("module.x"), "x");
+        assert_eq!(strip_prefix("encoder.x"), "x");
+        assert_eq!(strip_prefix("backbone.x"), "x");
+        assert_eq!(strip_prefix("model.x"), "x");
+    }
+
+    #[test]
+    fn test_build_remap_table_empty_input() {
+        let mappings = ijepa_vit_keymap();
+        let (remap, unmapped) = build_remap_table(&[], &mappings);
+        assert!(remap.is_empty());
+        assert!(unmapped.is_empty());
+    }
+
+    // --- Property-based tests ---
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn prop_strip_prefix_idempotent(key in "[a-z.]+") {
+            // Once stripped, stripping again should not change anything
+            let stripped = strip_prefix(&key);
+            let double_stripped = strip_prefix(stripped);
+            prop_assert_eq!(stripped, double_stripped);
+        }
+
+        #[test]
+        fn prop_strip_prefix_result_never_longer(key in "[a-z.]+") {
+            let stripped = strip_prefix(&key);
+            prop_assert!(stripped.len() <= key.len());
+        }
+
+        #[test]
+        fn prop_resolve_key_is_deterministic(
+            layer in 0usize..100,
+            suffix_idx in 0usize..6,
+        ) {
+            let suffixes = [
+                "norm1.weight", "norm1.bias",
+                "attn.qkv.weight", "attn.proj.weight",
+                "mlp.fc1.weight", "mlp.fc2.weight",
+            ];
+            let suffix = suffixes[suffix_idx % suffixes.len()];
+            let key = format!("blocks.{layer}.{suffix}");
+            let mappings = ijepa_vit_keymap();
+
+            let result1 = resolve_key(&key, &mappings);
+            let result2 = resolve_key(&key, &mappings);
+            prop_assert_eq!(&result1, &result2, "resolve_key should be deterministic");
+            prop_assert!(result1.is_some(), "all standard layer keys should resolve");
+        }
+
+        #[test]
+        fn prop_layer_index_preserved_in_mapping(layer in 0usize..1000) {
+            let key = format!("blocks.{layer}.norm1.weight");
+            let mappings = ijepa_vit_keymap();
+            let result = resolve_key(&key, &mappings).unwrap();
+            prop_assert!(
+                result.contains(&format!("{layer}")),
+                "layer index should be preserved in mapping: {result}"
+            );
+        }
+
+        #[test]
+        fn prop_build_remap_covers_all_inputs(num_keys in 0usize..20) {
+            let mappings = ijepa_vit_keymap();
+            let keys: Vec<String> = (0..num_keys)
+                .map(|i| format!("blocks.{i}.norm1.weight"))
+                .collect();
+            let (remap, unmapped) = build_remap_table(&keys, &mappings);
+            // Every key should be either remapped or unmapped
+            prop_assert_eq!(
+                remap.len() + unmapped.len(),
+                keys.len(),
+                "all keys must be accounted for"
+            );
+        }
+    }
 }
