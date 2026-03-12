@@ -257,6 +257,7 @@ impl MaskingStrategy for MultiBlockMasking {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
@@ -381,5 +382,108 @@ mod tests {
         assert!(mask.validate().is_ok());
         assert!(!mask.context_indices.is_empty());
         assert!(!mask.target_indices.is_empty());
+    }
+
+    // --- Property-based tests ---
+
+    proptest! {
+        #[test]
+        fn prop_block_mask_always_valid(
+            seed in 0u64..100000,
+            grid_h in 4usize..20,
+            grid_w in 4usize..20,
+            num_targets in 1usize..6,
+        ) {
+            let masking = BlockMasking {
+                num_targets,
+                target_scale: (0.1, 0.3),
+                target_aspect_ratio: (0.75, 1.5),
+            };
+            let shape = InputShape::Image { height: grid_h, width: grid_w };
+            let mask = masking.generate_mask(&shape, &mut rng(seed));
+
+            // Mask should always be valid
+            prop_assert!(mask.validate().is_ok());
+
+            // Context + target = total, no overlap
+            let total = grid_h * grid_w;
+            prop_assert_eq!(mask.context_indices.len() + mask.target_indices.len(), total);
+            prop_assert!(!mask.context_indices.is_empty());
+            prop_assert!(!mask.target_indices.is_empty());
+
+            // No duplicates in context
+            let mut ctx = mask.context_indices.clone();
+            ctx.sort_unstable();
+            ctx.dedup();
+            prop_assert_eq!(ctx.len(), mask.context_indices.len());
+
+            // No duplicates in target
+            let mut tgt = mask.target_indices.clone();
+            tgt.sort_unstable();
+            tgt.dedup();
+            prop_assert_eq!(tgt.len(), mask.target_indices.len());
+
+            // All indices in bounds
+            for &i in &mask.context_indices {
+                prop_assert!(i < total);
+            }
+            for &i in &mask.target_indices {
+                prop_assert!(i < total);
+            }
+        }
+
+        #[test]
+        fn prop_spatiotemporal_mask_always_valid(
+            seed in 0u64..100000,
+            frames in 4usize..12,
+            grid_h in 4usize..12,
+            grid_w in 4usize..12,
+        ) {
+            let masking = SpatiotemporalMasking {
+                num_targets: 2,
+                temporal_extent: (2, 3),
+                spatial_scale: (0.05, 0.15),
+            };
+            let shape = InputShape::Video { frames, height: grid_h, width: grid_w };
+            let mask = masking.generate_mask(&shape, &mut rng(seed));
+
+            prop_assert!(mask.validate().is_ok());
+
+            let total = frames * grid_h * grid_w;
+            prop_assert_eq!(mask.context_indices.len() + mask.target_indices.len(), total);
+            prop_assert!(!mask.context_indices.is_empty());
+            prop_assert!(!mask.target_indices.is_empty());
+        }
+
+        #[test]
+        fn prop_multi_block_mask_always_valid(
+            seed in 0u64..100000,
+            grid_h in 4usize..16,
+            grid_w in 4usize..16,
+            mask_ratio in 0.1f64..0.8,
+            num_blocks in 1usize..6,
+        ) {
+            let masking = MultiBlockMasking { mask_ratio, num_blocks };
+            let shape = InputShape::Image { height: grid_h, width: grid_w };
+            let mask = masking.generate_mask(&shape, &mut rng(seed));
+
+            prop_assert!(mask.validate().is_ok());
+            prop_assert!(!mask.context_indices.is_empty());
+            prop_assert!(!mask.target_indices.is_empty());
+        }
+
+        #[test]
+        fn prop_masking_is_deterministic(seed in 0u64..100000) {
+            let masking = BlockMasking {
+                num_targets: 4,
+                target_scale: (0.15, 0.2),
+                target_aspect_ratio: (0.75, 1.5),
+            };
+            let shape = InputShape::Image { height: 14, width: 14 };
+            let mask1 = masking.generate_mask(&shape, &mut rng(seed));
+            let mask2 = masking.generate_mask(&shape, &mut rng(seed));
+            prop_assert_eq!(mask1.context_indices, mask2.context_indices);
+            prop_assert_eq!(mask1.target_indices, mask2.target_indices);
+        }
     }
 }

@@ -130,6 +130,9 @@ mod tests {
     use super::*;
     use burn::tensor::ElementConversion;
     use burn_ndarray::NdArray;
+    use proptest::prelude::*;
+    use rand::Rng as _;
+    use rand::SeedableRng;
 
     type TestBackend = NdArray<f32>;
 
@@ -218,5 +221,53 @@ mod tests {
         let energy = SmoothL1Energy::new(1.0).compute(&a, &b);
         let val: f32 = energy.value.into_scalar().elem();
         assert!(val >= 0.0, "expected non-negative, got {val}");
+    }
+
+    // --- Property-based tests ---
+
+    proptest! {
+        #[test]
+        fn prop_l2_energy_never_negative(seed in 0u64..10000) {
+            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
+            let a_data: Vec<f32> = (0..24).map(|_| (rng.gen::<f32>() - 0.5) * 10.0).collect();
+            let b_data: Vec<f32> = (0..24).map(|_| (rng.gen::<f32>() - 0.5) * 10.0).collect();
+            let a = make_repr(&a_data, [2, 3, 4]);
+            let b = make_repr(&b_data, [2, 3, 4]);
+            let val: f32 = L2Energy.compute(&a, &b).value.into_scalar().elem();
+            prop_assert!(val >= 0.0, "L2 energy was negative: {val}");
+            prop_assert!(val.is_finite(), "L2 energy was not finite: {val}");
+        }
+
+        #[test]
+        fn prop_l2_energy_is_symmetric(seed in 0u64..10000) {
+            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
+            let a_data: Vec<f32> = (0..24).map(|_| rng.gen::<f32>() * 5.0).collect();
+            let b_data: Vec<f32> = (0..24).map(|_| rng.gen::<f32>() * 5.0).collect();
+            let a = make_repr(&a_data, [2, 3, 4]);
+            let b = make_repr(&b_data, [2, 3, 4]);
+            let e_ab: f32 = L2Energy.compute(&a, &b).value.into_scalar().elem();
+            let e_ba: f32 = L2Energy.compute(&b, &a).value.into_scalar().elem();
+            prop_assert!((e_ab - e_ba).abs() < 1e-5, "not symmetric: {e_ab} vs {e_ba}");
+        }
+
+        #[test]
+        fn prop_l2_energy_zero_for_identical(seed in 0u64..10000) {
+            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
+            let data: Vec<f32> = (0..24).map(|_| rng.gen::<f32>() * 10.0).collect();
+            let repr = make_repr(&data, [2, 3, 4]);
+            let val: f32 = L2Energy.compute(&repr, &repr).value.into_scalar().elem();
+            prop_assert!(val.abs() < 1e-6, "expected ~0 for identical, got {val}");
+        }
+
+        #[test]
+        fn prop_smooth_l1_never_negative(seed in 0u64..10000) {
+            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
+            let a_data: Vec<f32> = (0..12).map(|_| rng.gen::<f32>() * 10.0).collect();
+            let b_data: Vec<f32> = (0..12).map(|_| rng.gen::<f32>() * 10.0).collect();
+            let a = make_repr(&a_data, [1, 3, 4]);
+            let b = make_repr(&b_data, [1, 3, 4]);
+            let val: f32 = SmoothL1Energy::new(1.0).compute(&a, &b).value.into_scalar().elem();
+            prop_assert!(val >= 0.0, "SmoothL1 was negative: {val}");
+        }
     }
 }
