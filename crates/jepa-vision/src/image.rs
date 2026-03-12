@@ -15,7 +15,7 @@ use burn::prelude::*;
 use burn::tensor::backend::Backend;
 use burn::tensor::module::embedding;
 
-use jepa_core::types::{Energy, MaskSpec, Representation};
+use jepa_core::types::{Energy, MaskError, MaskSpec, Representation};
 use jepa_core::{CollapseRegularizer, EnergyFn, Predictor};
 
 /// Configuration for the transformer predictor.
@@ -129,6 +129,27 @@ pub struct TransformerPredictor<B: Backend> {
     encoder_embed_dim: usize,
 }
 
+/// Errors returned by [`TransformerPredictor::try_predict`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum PredictorError {
+    #[error(
+        "target position batch size mismatch: context batch={context_batch}, target_positions batch={positions_batch}"
+    )]
+    BatchSizeMismatch {
+        context_batch: usize,
+        positions_batch: usize,
+    },
+    #[error("target position must be non-negative, got {0}")]
+    NegativeTargetPosition(i64),
+    #[error(
+        "target position {position} exceeds predictor capacity {max_supported}; increase max_target_len"
+    )]
+    TargetPositionOutOfRange {
+        position: usize,
+        max_supported: usize,
+    },
+}
+
 impl<B: Backend> Predictor<B> for TransformerPredictor<B> {
     fn predict(
         &self,
@@ -136,19 +157,53 @@ impl<B: Backend> Predictor<B> for TransformerPredictor<B> {
         target_positions: &Tensor<B, 2>,
         _latent: Option<&Tensor<B, 2>>,
     ) -> Representation<B> {
+        self.try_predict(context, target_positions).expect(
+            "target positions must match the context batch and stay within predictor capacity",
+        )
+    }
+}
+
+impl<B: Backend> TransformerPredictor<B> {
+    /// Fallible predictor path for caller-controlled target positions.
+    pub fn try_predict(
+        &self,
+        context: &Representation<B>,
+        target_positions: &Tensor<B, 2>,
+    ) -> Result<Representation<B>, PredictorError> {
         let [batch, _ctx_len, _enc_dim] = context.embeddings.dims();
-        let [_batch, num_targets] = target_positions.dims();
+        let [positions_batch, num_targets] = target_positions.dims();
+        if positions_batch != batch {
+            return Err(PredictorError::BatchSizeMismatch {
+                context_batch: batch,
+                positions_batch,
+            });
+        }
+
+        if num_targets == 0 {
+            let device = context.embeddings.device();
+            return Ok(Representation::new(Tensor::zeros(
+                [batch, 0, self.encoder_embed_dim],
+                &device,
+            )));
+        }
+
         let target_positions = target_positions.clone().int();
+        let min_position: i64 = target_positions.clone().min().into_scalar().elem();
+        if min_position < 0 {
+            return Err(PredictorError::NegativeTargetPosition(min_position));
+        }
+
         let max_position: i64 = target_positions.clone().max().into_scalar().elem();
-        let max_supported_position = self.prediction_tokens.dims()[0] as i64;
-        assert!(
-            max_position < max_supported_position,
-            "target position {max_position} exceeds predictor capacity {max_supported_position}; increase max_target_len"
-        );
+        let max_supported_position = self.prediction_tokens.dims()[0];
+        if max_position >= max_supported_position as i64 {
+            return Err(PredictorError::TargetPositionOutOfRange {
+                position: max_position as usize,
+                max_supported: max_supported_position,
+            });
+        }
 
         // 1. Project context to predictor dimension
         let ctx = self.input_proj.forward(context.embeddings.clone());
-        // ctx: [batch, ctx_len, predictor_embed_dim]
 
         // 2. Select prediction tokens using the actual target positions.
         let pred_tokens = embedding(self.prediction_tokens.clone(), target_positions);
@@ -171,7 +226,7 @@ impl<B: Backend> Predictor<B> for TransformerPredictor<B> {
         let pred_out = self.norm.forward(pred_out);
         let pred_out = self.output_proj.forward(pred_out);
 
-        Representation::new(pred_out)
+        Ok(Representation::new(pred_out))
     }
 }
 
@@ -339,8 +394,21 @@ pub struct StrictIJepaForwardOutput<B: Backend> {
     pub target: Representation<B>,
 }
 
+/// Errors returned by [`IJepa::try_forward_step_strict`].
+#[derive(Debug, thiserror::Error)]
+pub enum StrictIJepaError {
+    #[error(transparent)]
+    InvalidMask(#[from] MaskError),
+    #[error(transparent)]
+    Predictor(#[from] PredictorError),
+}
+
 impl<B: Backend> IJepa<B> {
     /// Encode only visible context patches before self-attention runs.
+    ///
+    /// This method assumes `context_indices` are already valid for the current
+    /// image grid. Use [`IJepa::try_forward_step_strict`] when the indices come
+    /// from caller-controlled masking data.
     pub fn encode_context_strict(
         &self,
         images: &Tensor<B, 4>,
@@ -354,6 +422,12 @@ impl<B: Backend> IJepa<B> {
     ///
     /// The target encoder still sees the full input, but the context encoder is
     /// restricted to visible patches before any attention mixing occurs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `mask` is invalid or if the predictor receives target
+    /// positions outside its configured capacity. Use
+    /// [`IJepa::try_forward_step_strict`] for typed error reporting.
     pub fn forward_step_strict<EF, CR>(
         &self,
         images: &Tensor<B, 4>,
@@ -366,8 +440,24 @@ impl<B: Backend> IJepa<B> {
         EF: EnergyFn<B>,
         CR: CollapseRegularizer<B>,
     {
-        mask.validate()
-            .expect("strict I-JEPA forward step requires a valid mask");
+        self.try_forward_step_strict(images, mask, energy_fn, regularizer, reg_weight)
+            .expect("strict I-JEPA forward step requires a valid mask and predictor positions within capacity")
+    }
+
+    /// Execute a strict masked I-JEPA forward step with typed error reporting.
+    pub fn try_forward_step_strict<EF, CR>(
+        &self,
+        images: &Tensor<B, 4>,
+        mask: MaskSpec,
+        energy_fn: &EF,
+        regularizer: &CR,
+        reg_weight: f64,
+    ) -> Result<StrictIJepaForwardOutput<B>, StrictIJepaError>
+    where
+        EF: EnergyFn<B>,
+        CR: CollapseRegularizer<B>,
+    {
+        mask.validate()?;
 
         let context = self.encode_context_strict(images, &mask.context_indices);
         let target_full = self.target_encoder.forward(images);
@@ -376,7 +466,7 @@ impl<B: Backend> IJepa<B> {
         let batch = images.dims()[0];
         let target_positions =
             target_positions_tensor::<B>(&mask.target_indices, batch, &images.device());
-        let predicted = self.predictor.predict(&context, &target_positions, None);
+        let predicted = self.predictor.try_predict(&context, &target_positions)?;
 
         let num_targets = target.seq_len();
         let embed_dim = target.embed_dim();
@@ -393,7 +483,7 @@ impl<B: Backend> IJepa<B> {
         let regularization = regularizer.loss(&pred_flat, &target_flat);
         let total_loss = energy.value.clone() + regularization.clone() * reg_weight;
 
-        StrictIJepaForwardOutput {
+        Ok(StrictIJepaForwardOutput {
             energy,
             regularization,
             total_loss,
@@ -401,7 +491,7 @@ impl<B: Backend> IJepa<B> {
             context,
             predicted,
             target,
-        }
+        })
     }
 }
 
@@ -582,6 +672,74 @@ mod tests {
     }
 
     #[test]
+    fn test_predictor_try_predict_rejects_batch_size_mismatch() {
+        let config = TransformerPredictorConfig {
+            encoder_embed_dim: 16,
+            predictor_embed_dim: 8,
+            num_layers: 1,
+            num_heads: 2,
+            max_target_len: 16,
+        };
+        let predictor = config.init::<TestBackend>(&device());
+
+        let context = Representation::new(Tensor::zeros([2, 4, 16], &device()));
+        let target_pos: Tensor<TestBackend, 2> = Tensor::zeros([1, 2], &device());
+
+        let err = predictor.try_predict(&context, &target_pos).unwrap_err();
+        assert_eq!(
+            err,
+            PredictorError::BatchSizeMismatch {
+                context_batch: 2,
+                positions_batch: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn test_predictor_try_predict_rejects_out_of_range_positions() {
+        let config = TransformerPredictorConfig {
+            encoder_embed_dim: 16,
+            predictor_embed_dim: 8,
+            num_layers: 1,
+            num_heads: 2,
+            max_target_len: 4,
+        };
+        let predictor = config.init::<TestBackend>(&device());
+
+        let context = Representation::new(Tensor::zeros([1, 4, 16], &device()));
+        let target_pos = target_positions(&[0, 4], 1);
+
+        let err = predictor.try_predict(&context, &target_pos).unwrap_err();
+        assert_eq!(
+            err,
+            PredictorError::TargetPositionOutOfRange {
+                position: 4,
+                max_supported: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn test_predictor_try_predict_allows_empty_targets() {
+        let config = TransformerPredictorConfig {
+            encoder_embed_dim: 16,
+            predictor_embed_dim: 8,
+            num_layers: 1,
+            num_heads: 2,
+            max_target_len: 4,
+        };
+        let predictor = config.init::<TestBackend>(&device());
+
+        let context = Representation::new(Tensor::zeros([2, 4, 16], &device()));
+        let target_pos: Tensor<TestBackend, 2> = Tensor::zeros([2, 0], &device());
+
+        let predicted = predictor.try_predict(&context, &target_pos).unwrap();
+        assert_eq!(predicted.batch_size(), 2);
+        assert_eq!(predicted.seq_len(), 0);
+        assert_eq!(predicted.embed_dim(), 16);
+    }
+
+    #[test]
     fn test_ijepa_full_pipeline() {
         // End-to-end test: encode → mask → predict → compute energy
         let config = IJepaConfig::tiny_test();
@@ -700,6 +858,28 @@ mod tests {
             total_loss.is_finite(),
             "strict forward loss should be finite"
         );
+    }
+
+    #[test]
+    fn test_try_strict_forward_step_rejects_invalid_mask() {
+        let config = IJepaConfig::tiny_test();
+        let model = config.init::<TestBackend>(&device());
+        let images = Tensor::ones([1, 1, 8, 8], &device());
+        let invalid_mask = MaskSpec {
+            context_indices: vec![],
+            target_indices: vec![0],
+            total_tokens: 16,
+        };
+        let energy_fn = jepa_core::energy::L2Energy;
+        let regularizer = jepa_core::collapse::VICReg::default();
+
+        let err = model
+            .try_forward_step_strict(&images, invalid_mask, &energy_fn, &regularizer, 1.0)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            StrictIJepaError::InvalidMask(MaskError::EmptyContext)
+        ));
     }
 
     // ======================================================================

@@ -4,7 +4,7 @@
 
 This document is the working gap register for taking `jepa-rs` from its current alpha state to a production-grade JEPA framework in Rust.
 
-As of March 12, 2026, the workspace is useful for local experimentation and extension work, but it is not yet suitable for parity-sensitive production training or deployment.
+As of March 12, 2026, the workspace is useful for local experimentation and extension work, and the release-candidate verification surface is materially stronger than it was at the start of this cycle. It is still not production-grade yet.
 
 ## Target Bar
 
@@ -19,7 +19,7 @@ As of March 12, 2026, the workspace is useful for local experimentation and exte
 
 ## Current Declaration
 
-Current status: **alpha**
+Current status: **alpha, release-candidate hardening complete locally**
 
 Current strengths:
 
@@ -27,54 +27,54 @@ Current strengths:
 - unit, integration, property, doc, clippy, and rustdoc checks pass locally
 - safetensors and ONNX checkpoint inspection/loading are usable
 - strict image and video masked forward paths have regression coverage
+- strict I-JEPA image parity runs against a checked-in canonical Python fixture in CI
+- caller-triggerable misuse has typed or fallible paths in the highest-risk vision, training, and world-model APIs
 - coverage, fuzzing, and benchmark smoke checks are part of the verification surface
+- package smoke passes for all crates with the documented unpublished-workspace packaging procedure
 - core crate boundaries are already reasonably clear
 
 Current blockers:
 
-- differential parity is unproven
-- release engineering and public package readiness are incomplete
-- reference parity is still fixture-driven rather than mandatory in CI
+- parity coverage is still narrow and currently proves only one strict image flow
+- the first crates.io release has not been exercised yet
+- contributor-facing operational guidance still needs more explicit runbooks and support boundaries
 - full ONNX runtime execution is still out of scope
 
 ## Gap Register
 
-| ID | Gap | Severity | Why It Matters | Affected Areas | Target State |
-|----|-----|----------|----------------|----------------|--------------|
-| G-001 | Generic JEPA orchestration remains approximate | P0 | Hidden tokens can still influence encoder attention in the generic training helper, even though strict image and video paths now exist | `jepa-train`, `jepa-vision` | Strict modality-specific paths exist and the generic helper is clearly documented as approximate |
-| G-002 | Reference parity is not proven | P0 | A large local suite is not enough for numerical ML code; without differential tests, silent drift can ship | `jepa-core`, `jepa-vision`, `jepa-train`, `specs` | Differential tests run against at least one canonical Python JEPA implementation in CI |
-| G-003 | Runtime validation is inconsistent across public APIs | P1 | Panic-based behavior is acceptable for invariant violations, not for ordinary runtime misuse by library callers | `jepa-world`, `jepa-vision`, `jepa-train` | Fallible or clearly documented APIs exist for user-triggerable failure modes |
-| G-004 | ONNX runtime execution is narrower than the adapter surface | P1 | Metadata and initializer loading now work, but ONNX runtime execution is still outside the supported scope | `jepa-compat` | ONNX model info extraction and weight loading work against real models, with runtime scope documented explicitly |
-| G-005 | Quality gates need continuous enforcement discipline | P1 | Coverage, fuzz, and benchmark checks exist now, but they only help if maintained as release blockers | workspace, `.github` | CI enforces a stronger verification surface including fuzz and performance checks |
-| G-006 | Release readiness is incomplete | P1 | External users still lack crates.io releases, API-level stability messaging, compatibility guarantees, and migration discipline | workspace docs, manifests, release process | Crates are publishable with clear versioning, changelog discipline, and contributor guidance |
-| G-007 | Operational and debugging guidance is thin | P2 | New contributors and downstream users still need to infer too much from source code | README, architecture docs, examples | Runbooks, examples, limitations, and support expectations are documented explicitly |
-| G-008 | Performance validation is mostly anecdotal | P2 | The code may be fast enough, but there are no budgets or regression policies for hot paths | `benches`, CI | Core training, masking, and planning paths have benchmark baselines and regression detection |
+| ID | Gap | Severity | Status | Why It Matters | Affected Areas | Target State |
+|----|-----|----------|--------|----------------|----------------|--------------|
+| G-001 | Generic JEPA orchestration remains approximate | P0 | Closed for current scope | Hidden tokens can still influence encoder attention in the generic training helper, but strict image and video paths now exist and are the documented semantic reference | `jepa-train`, `jepa-vision` | Strict modality-specific paths exist and the generic helper is clearly documented as approximate |
+| G-002 | Reference parity is not proven | P0 | Closed for first reference path | A large local suite is not enough for numerical ML code; without differential tests, silent drift can ship | `jepa-core`, `jepa-vision`, `jepa-train`, `specs` | Differential tests run against at least one canonical Python JEPA implementation in CI |
+| G-003 | Runtime validation is inconsistent across public APIs | P1 | Closed for highest-risk caller paths | Panic-based behavior is acceptable for invariant violations, not for ordinary runtime misuse by library callers | `jepa-world`, `jepa-vision`, `jepa-train` | Fallible or clearly documented APIs exist for user-triggerable failure modes |
+| G-004 | ONNX runtime execution is narrower than the adapter surface | P1 | Open | Metadata and initializer loading now work, but ONNX runtime execution is still outside the supported scope | `jepa-compat` | ONNX model info extraction and weight loading work against real models, with runtime scope documented explicitly |
+| G-005 | Quality gates need continuous enforcement discipline | P1 | Closed for the current gate set | Coverage, fuzz, benchmark smoke, parity, and package smoke only help if they stay release blockers | workspace, `.github` | CI enforces a stronger verification surface including parity, fuzz, coverage, package smoke, and performance checks |
+| G-006 | Release readiness is incomplete | P1 | In progress | External users still lack a first crates.io release, exercised migration discipline, and a published support story | workspace docs, manifests, release process | Crates are publishable with clear versioning, changelog discipline, and contributor guidance |
+| G-007 | Operational and debugging guidance is thin | P2 | In progress | New contributors and downstream users still need to infer too much from source code | README, architecture docs, examples | Runbooks, examples, limitations, and support expectations are documented explicitly |
+| G-008 | Performance validation is mostly anecdotal | P2 | In progress | The code may be fast enough, but baselines and regression policy still need continued maintenance | `benches`, CI | Core training, masking, and planning paths have benchmark baselines and regression detection |
 
 ## Dependency Graph
 
-The work is not independent. The correct order is:
+The remaining work is not independent. The correct order from here is:
 
-1. G-001 strict masked training semantics
-2. G-002 differential parity on top of the corrected semantics
-3. G-003 runtime validation cleanup alongside G-002
-4. G-005 quality gates once parity and fuzz targets exist
-5. G-004 ONNX scope expansion in parallel once a stronger runtime story is justified
-6. G-006 release readiness after the library is semantically correct and verified
-7. G-007 and G-008 continuously, but finalized near release candidate
+1. broaden G-002 parity coverage beyond the first strict image fixture
+2. finish G-006 by exercising the first public release flow
+3. close G-007 with explicit operational runbooks and support guidance
+4. continue G-008 by maintaining benchmark baselines and regression budgets
+5. execute G-004 only if ONNX runtime expansion is explicitly approved
 
 ## Immediate Focus
 
 The next highest-value sequence is:
 
-1. Design the masked-encoder training path that preserves current crate boundaries as much as possible.
-2. Add failing regression tests proving hidden tokens cannot affect context encoding.
-3. Implement the image path first, because it is simpler and should become the reference implementation for video.
-4. Extend the same semantics to video.
-5. Only after semantic correctness is fixed, wire differential tests against `facebookresearch/ijepa`.
+1. Add at least one more canonical parity fixture so numerical coverage is not concentrated in a single tiny image case.
+2. Rehearse the first crates.io release candidate in dependency order using the documented package smoke and release steps.
+3. Expand contributor-facing operational docs where external users would currently have to infer too much.
+4. Only pull ONNX runtime execution into scope if maintainers explicitly decide that production-grade requires it.
 
 ## Out Of Scope Until After Semantic Correctness
 
-The following work should not distract from G-001 and G-002:
+The following work should not distract from the remaining open gaps:
 
 - distributed training
 - model zoo packaging
@@ -83,4 +83,4 @@ The following work should not distract from G-001 and G-002:
 
 ## Exit Condition For “Production-Grade”
 
-Do not call `jepa-rs` production-grade until all P0 and P1 gaps are closed and the release readiness milestone in [ROADMAP.md](./ROADMAP.md) is complete.
+Do not call `jepa-rs` production-grade until the remaining P0 and P1 gaps are closed, the release readiness milestone in [ROADMAP.md](./ROADMAP.md) is exercised end to end, and the supported ONNX scope is either accepted as-is or expanded by explicit approval.

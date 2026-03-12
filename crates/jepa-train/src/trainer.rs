@@ -22,7 +22,7 @@ use jepa_core::collapse::CollapseRegularizer;
 use jepa_core::ema::Ema;
 use jepa_core::energy::EnergyFn;
 use jepa_core::masking::MaskingStrategy;
-use jepa_core::types::{Energy, InputShape, MaskSpec, Representation};
+use jepa_core::types::{Energy, InputShape, MaskError, MaskSpec, Representation};
 use jepa_core::{Encoder, Predictor};
 
 use crate::schedule::LrSchedule;
@@ -45,6 +45,13 @@ pub struct JepaForwardOutput<B: Backend> {
     pub predicted: Representation<B>,
     /// Actual target representations (from target encoder, detached).
     pub target: Representation<B>,
+}
+
+/// Errors returned by [`JepaComponents::try_forward_step`].
+#[derive(Debug, thiserror::Error)]
+pub enum JepaForwardError {
+    #[error(transparent)]
+    InvalidMask(#[from] MaskError),
 }
 
 /// Bundles all JEPA components needed for a training step.
@@ -126,6 +133,12 @@ where
     /// context slice is gathered. Prefer the encoder-specific strict helpers
     /// when hidden-token isolation matters.
     ///
+    /// # Panics
+    ///
+    /// Panics if the configured masking strategy produces an invalid mask. Use
+    /// [`JepaComponents::try_forward_step`] when the masking strategy or input
+    /// shape is caller-controlled.
+    ///
     /// The caller is responsible for:
     /// - Running backward pass on `total_loss`
     /// - Stepping the optimizer
@@ -136,10 +149,20 @@ where
         input_shape: &InputShape,
         rng: &mut impl rand::Rng,
     ) -> JepaForwardOutput<B> {
+        self.try_forward_step(input, input_shape, rng)
+            .expect("masking strategy must produce a valid mask")
+    }
+
+    /// Execute a single JEPA training step with typed mask validation.
+    pub fn try_forward_step(
+        &self,
+        input: &E::Input,
+        input_shape: &InputShape,
+        rng: &mut impl rand::Rng,
+    ) -> Result<JepaForwardOutput<B>, JepaForwardError> {
         // 1. Generate mask
         let mask = self.masking.generate_mask(input_shape, rng);
-        mask.validate()
-            .expect("masking strategy must produce a valid mask");
+        mask.validate()?;
 
         // The generic encoder trait doesn't let the trainer remove masked tokens
         // before encoder attention runs, so this orchestration layer filters
@@ -182,14 +205,14 @@ where
         // 8. Combine losses
         let total_loss = energy.value.clone() + regularization.clone() * self.reg_weight;
 
-        JepaForwardOutput {
+        Ok(JepaForwardOutput {
             energy,
             regularization,
             total_loss,
             mask,
             predicted,
             target: target_slice,
-        }
+        })
     }
 }
 
@@ -434,6 +457,47 @@ mod tests {
         assert_eq!(values.len(), 2);
         assert!((values[0] - 1.0).abs() < 1e-6);
         assert!((values[1] - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_jepa_try_forward_step_rejects_invalid_mask() {
+        let embed_dim = 8;
+        let context_encoder = TestEncoder { embed_dim };
+        let target_encoder = TestEncoder { embed_dim };
+        let predictor = TestPredictor { embed_dim };
+        let energy_fn = L2Energy;
+        let regularizer = VICReg::default();
+        let masking = FixedMasking {
+            mask: MaskSpec {
+                context_indices: vec![],
+                target_indices: vec![0],
+                total_tokens: 4,
+            },
+        };
+
+        let components = JepaComponents::new(
+            &context_encoder,
+            &target_encoder,
+            &predictor,
+            &energy_fn,
+            &regularizer,
+            &masking,
+            0.0,
+        );
+        let input: Tensor<TestBackend, 4> = Tensor::ones([1, 1, 2, 2], &device());
+        let input_shape = InputShape::Image {
+            height: 2,
+            width: 2,
+        };
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(3);
+
+        let err = components
+            .try_forward_step(&input, &input_shape, &mut rng)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            JepaForwardError::InvalidMask(MaskError::EmptyContext)
+        ));
     }
 
     #[test]

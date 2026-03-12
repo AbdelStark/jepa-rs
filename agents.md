@@ -1,13 +1,15 @@
 # Multi-Agent Orchestration for jepa-rs
 
 <project>
-jepa-rs is an alpha Rust workspace for JEPA components on top of burn 0.16.
+jepa-rs is an alpha Rust workspace for JEPA components on top of burn 0.20.1.
 
 Current state as of March 12, 2026:
-- Workspace build, tests, clippy, and docs pass locally.
-- Safetensors support is functional.
-- ONNX loading is still a stub.
-- The generic trainer does not yet enforce strict pre-encoder masking semantics.
+- Workspace build, tests, clippy, docs, parity, and package smoke pass locally.
+- Strict image and video masked helpers exist with no-leakage regression coverage.
+- Differential parity runs in CI for one strict I-JEPA image fixture.
+- Safetensors support is functional, and ONNX metadata inspection plus initializer loading are implemented.
+- Full ONNX runtime execution remains out of scope unless explicitly approved.
+- The generic trainer remains approximate by design and must not be treated as the strict semantic reference path.
 </project>
 
 <roles>
@@ -30,6 +32,9 @@ Read first:
 - [`ROADMAP.md`](./ROADMAP.md)
 - [`WORK_PACKAGES.md`](./WORK_PACKAGES.md)
 - [`SPECIFICATION.md`](./SPECIFICATION.md)
+- [`docs/QUALITY_GATES.md`](./docs/QUALITY_GATES.md)
+- [`docs/RELEASE.md`](./docs/RELEASE.md)
+- [`specs/differential/README.md`](./specs/differential/README.md)
 
 Critical crates:
 - `crates/jepa-core`: shared contracts
@@ -93,7 +98,8 @@ Constraints:
 - `JepaComponents::forward_step` is not a strict masked-encoder trainer. Do not design downstream work as if target tokens are hidden before encoder attention.
 - `TransformerPredictor` now expects real flattened token indices in `target_positions`.
 - `Representation::gather` preserves masks. Rely on that instead of rebuilding token masks by hand.
-- ONNX tasks that need real parsing or runtime execution require a dependency addition and must be escalated.
+- Use `scripts/run_parity_suite.sh` for the current reference check; the default bundled fixture is the source of truth for the strict image parity path.
+- ONNX tasks that need runtime execution still require explicit approval and likely dependency work; escalate before expanding scope.
 
 </gotchas>
 

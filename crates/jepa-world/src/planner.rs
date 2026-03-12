@@ -94,6 +94,10 @@ impl L2Cost {
 }
 
 impl<B: Backend> CostFunction<B> for L2Cost {
+    /// # Panics
+    ///
+    /// Panics if `trajectory` is empty. Use [`L2Cost::try_total_cost`] when
+    /// the caller controls the trajectory contents.
     fn total_cost(&self, trajectory: &[Representation<B>], goal: &Representation<B>) -> Energy<B> {
         self.try_total_cost(trajectory, goal)
             .expect("trajectory must not be empty")
@@ -259,6 +263,10 @@ pub struct PlanResult<B: Backend> {
 
 impl RandomShootingPlanner {
     /// Create a new random-shooting planner with the given configuration.
+    ///
+    /// This constructor preserves the historical panic-on-use behavior of
+    /// [`RandomShootingPlanner::plan`]. Use [`RandomShootingPlanner::try_new`]
+    /// when the configuration comes from untrusted or caller-controlled input.
     pub fn new(config: RandomShootingConfig) -> Self {
         Self { config }
     }
@@ -281,6 +289,12 @@ impl RandomShootingPlanner {
     /// * `horizon` - Number of actions in the plan
     /// * `action_dim` - Dimension of each action vector
     /// * `rng` - Random number generator
+    ///
+    /// # Panics
+    ///
+    /// Panics if the planner configuration is invalid or if `horizon` /
+    /// `action_dim` are zero. Use [`RandomShootingPlanner::try_plan`] for
+    /// typed error reporting on caller-controlled inputs.
     pub fn plan<B: Backend, D: ActionConditionedPredictor<B>, C: CostFunction<B>>(
         &self,
         world_model: &WorldModel<B, D, C>,
@@ -647,6 +661,16 @@ mod tests {
         .validate()
         .unwrap_err();
         assert_eq!(err, PlanningError::ZeroIterations(0));
+
+        let err = RandomShootingConfig {
+            num_candidates: 4,
+            num_iterations: 1,
+            num_elites: 0,
+            init_std: 1.0,
+        }
+        .validate()
+        .unwrap_err();
+        assert_eq!(err, PlanningError::ZeroElites(0));
     }
 
     #[test]
@@ -663,6 +687,22 @@ mod tests {
             .try_plan(&model, &initial, &goal, 0, 8, &mut rng)
             .unwrap_err();
         assert_eq!(err, PlanningError::ZeroHorizon(0));
+    }
+
+    #[test]
+    fn test_random_shooting_try_plan_rejects_zero_action_dim() {
+        use rand::SeedableRng;
+
+        let model = WorldModel::new(AdditiveDynamics, L2Cost);
+        let planner = RandomShootingPlanner::new(RandomShootingConfig::default());
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(5);
+
+        let err = planner
+            .try_plan(&model, &initial, &goal, 1, 0, &mut rng)
+            .unwrap_err();
+        assert_eq!(err, PlanningError::ZeroActionDim(0));
     }
 
     #[test]

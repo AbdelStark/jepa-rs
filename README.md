@@ -14,16 +14,16 @@ This repository is for Rust developers who want to experiment with JEPA-style mo
 
 ## Status
 
-As of March 12, 2026, this project is **alpha with production-hardening work in progress**.
+As of March 12, 2026, this project is **alpha with local release-candidate hardening complete**.
 
-It is suitable for local research, API exploration, and extending JEPA components inside Rust codebases. It is not yet suitable for parity-sensitive production training or deployment pipelines.
+It is suitable for local research, API exploration, and extending JEPA components inside Rust codebases. It is not yet production-grade.
 
 Known limitations:
 
 - The generic trainer in [`crates/jepa-train/src/trainer.rs`](./crates/jepa-train/src/trainer.rs) still slices context and target tokens after encoder forward. Strict pre-attention masking is available through [`IJepa::forward_step_strict`](./crates/jepa-vision/src/image.rs) and [`VJepa::forward_step_strict`](./crates/jepa-vision/src/video.rs).
-- Differential parity against canonical Python JEPA implementations is fixture-driven and not yet provisioned as a mandatory CI job.
+- Differential parity now runs in CI against a checked-in strict image fixture, but broader fixture coverage against additional Python exports is still pending.
 - ONNX support covers model metadata and initializer loading, not full runtime execution.
-- Workspace crates are not published to crates.io yet.
+- Workspace crates are not published to crates.io yet. Local package smoke checks pass, but consumers still depend on the git workspace until the first crates.io release lands.
 
 ## Workspace Layout
 
@@ -78,10 +78,11 @@ Runnable examples live in [`crates/jepa-vision/examples`](./crates/jepa-vision/e
 
 ```bash
 cargo build
-cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt -- --check
-cargo doc --no-deps
+cargo doc --workspace --no-deps
+scripts/run_parity_suite.sh
 ```
 
 Extended quality gates:

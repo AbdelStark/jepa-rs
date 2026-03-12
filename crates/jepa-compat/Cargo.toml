@@ -14,7 +14,7 @@ readme = "../../README.md"
 documentation = "https://docs.rs/jepa-compat"
 
 [dependencies]
-jepa-core = { path = "../jepa-core" }
+jepa-core = { path = "../jepa-core", version = "0.1.0" }
 burn = { workspace = true }
 safetensors = { workspace = true }
 serde = { workspace = true }

@@ -52,7 +52,8 @@ impl<B: Backend> ShortTermMemory<B> {
     /// Create a new short-term memory with the given capacity.
     ///
     /// # Panics
-    /// Panics if `capacity` is zero.
+    /// Panics if `capacity` is zero. Use [`ShortTermMemory::try_new`] when
+    /// capacity comes from caller-controlled input.
     pub fn new(capacity: usize) -> Self {
         Self::try_new(capacity).expect("memory capacity must be positive")
     }
@@ -74,6 +75,12 @@ impl<B: Backend> ShortTermMemory<B> {
     /// Push a new state representation into memory.
     ///
     /// If the buffer is full, the oldest entry is evicted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new representation has a different embedding dimension
+    /// than the existing contents. Use [`ShortTermMemory::try_push`] for
+    /// typed error reporting on caller-controlled inputs.
     pub fn push(&mut self, repr: Representation<B>) {
         self.try_push(repr)
             .expect("memory push invariant violated: embed_dim must remain constant");

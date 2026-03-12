@@ -14,7 +14,7 @@ readme = "../../README.md"
 documentation = "https://docs.rs/jepa-vision"
 
 [dependencies]
-jepa-core = { path = "../jepa-core" }
+jepa-core = { path = "../jepa-core", version = "0.1.0" }
 burn = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
@@ -25,7 +25,7 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
-jepa-train = { path = "../jepa-train" }
+jepa-train = { path = "../jepa-train", version = "0.1.0" }
 
 [[bench]]
 name = "vision_bench"

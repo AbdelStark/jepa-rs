@@ -3,15 +3,20 @@
 //! These tests verify the end-to-end behavior described in the Gherkin scenarios
 //! in specs/gherkin/features.feature.
 
+use burn::module::{Module, ModuleMapper, Param};
 use burn::prelude::*;
 use burn::tensor::ElementConversion;
 use burn_ndarray::NdArray;
 
 use jepa_core::types::{InputShape, MaskSpec, Representation};
-use jepa_core::{Encoder, EnergyFn, MaskingStrategy, Predictor};
+use jepa_core::{CollapseRegularizer, Encoder, EnergyFn, MaskingStrategy, Predictor};
 use jepa_vision::image::IJepaConfig;
+use jepa_vision::image::TransformerPredictorConfig;
 use jepa_vision::video::VitVideoConfig;
 use jepa_vision::vit::VitConfig;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 type TestBackend = NdArray<f32>;
 
@@ -87,6 +92,438 @@ fn video_with_hidden_tubelet_value(mask: &MaskSpec, hidden_value: f32) -> Tensor
         burn::tensor::TensorData::new(data, [1, 1, frames, height, width]),
         &device(),
     )
+}
+
+#[derive(Debug)]
+struct ParityFixture {
+    metadata: ParityMetadata,
+    config: ParityConfig,
+    weights: HashMap<String, FixtureTensor>,
+    raw_input: FixtureTensor,
+    mask: FixtureMask,
+    target_positions: Vec<usize>,
+    context: FixtureTensor,
+    target: FixtureTensor,
+    predicted: FixtureTensor,
+    energy: Vec<f32>,
+}
+
+#[derive(Debug)]
+struct ParityMetadata {
+    abs_tolerance: f32,
+    rel_tolerance: f32,
+}
+
+#[derive(Debug)]
+struct ParityConfig {
+    encoder: VitConfig,
+    predictor: TransformerPredictorConfig,
+}
+
+#[derive(Debug, Clone)]
+struct FixtureTensor {
+    shape: Vec<usize>,
+    values: Vec<f32>,
+}
+
+#[derive(Debug, Clone)]
+struct FixtureMask {
+    context_indices: Vec<usize>,
+    target_indices: Vec<usize>,
+    total_tokens: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ParameterLoadError {
+    path: String,
+    message: String,
+}
+
+struct FixtureWeightMapper<B: Backend> {
+    device: B::Device,
+    weights: HashMap<String, FixtureTensor>,
+    stack: Vec<String>,
+    used: HashSet<String>,
+    errors: Vec<ParameterLoadError>,
+}
+
+impl<B: Backend> FixtureWeightMapper<B> {
+    fn new(device: B::Device, weights: HashMap<String, FixtureTensor>) -> Self {
+        Self {
+            device,
+            weights,
+            stack: Vec::new(),
+            used: HashSet::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    fn into_result(self) -> Result<(), String> {
+        if !self.errors.is_empty() {
+            let messages: Vec<String> = self
+                .errors
+                .iter()
+                .map(|error| format!("{}: {}", error.path, error.message))
+                .collect();
+            return Err(messages.join("; "));
+        }
+
+        let unused: Vec<String> = self
+            .weights
+            .keys()
+            .filter(|path| !self.used.contains(*path))
+            .cloned()
+            .collect();
+        if !unused.is_empty() {
+            return Err(format!("unused fixture weights: {}", unused.join(", ")));
+        }
+
+        Ok(())
+    }
+
+    fn current_path(&self) -> String {
+        self.stack.join(".")
+    }
+
+    fn replacement_tensor<const D: usize>(
+        &mut self,
+        path: &str,
+        expected_shape: [usize; D],
+    ) -> Option<Tensor<B, D>> {
+        let Some(weight) = self.weights.get(path) else {
+            self.errors.push(ParameterLoadError {
+                path: path.to_owned(),
+                message: "missing fixture weight".to_owned(),
+            });
+            return None;
+        };
+
+        let actual_shape: [usize; D] = match weight.shape.clone().try_into() {
+            Ok(shape) => shape,
+            Err(_) => {
+                self.errors.push(ParameterLoadError {
+                    path: path.to_owned(),
+                    message: format!("expected rank {D}, got shape {:?}", weight.shape),
+                });
+                return None;
+            }
+        };
+
+        if actual_shape != expected_shape {
+            self.errors.push(ParameterLoadError {
+                path: path.to_owned(),
+                message: format!(
+                    "shape mismatch: expected {:?}, got {:?}",
+                    expected_shape, actual_shape
+                ),
+            });
+            return None;
+        }
+
+        self.used.insert(path.to_owned());
+        Some(Tensor::from_floats(
+            burn::tensor::TensorData::new(weight.values.clone(), actual_shape),
+            &self.device,
+        ))
+    }
+}
+
+impl<B: Backend> ModuleMapper<B> for FixtureWeightMapper<B> {
+    fn enter_module(&mut self, name: &str, _container_type: &str) {
+        self.stack.push(name.to_owned());
+    }
+
+    fn exit_module(&mut self, _name: &str, _container_type: &str) {
+        self.stack.pop();
+    }
+
+    fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+        let path = self.current_path();
+        let (id, tensor, mapper) = param.consume();
+        let replacement = self
+            .replacement_tensor(&path, tensor.dims())
+            .unwrap_or_else(|| tensor.clone());
+        Param::from_mapped_value(id, replacement, mapper)
+    }
+}
+
+struct ZeroRegularizer;
+
+impl<B: Backend> CollapseRegularizer<B> for ZeroRegularizer {
+    fn loss(&self, predicted: &Tensor<B, 2>, _target: &Tensor<B, 2>) -> Tensor<B, 1> {
+        Tensor::zeros([1], &predicted.device())
+    }
+}
+
+fn parity_fixture_path() -> PathBuf {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    std::env::var("JEPA_PARITY_FIXTURE")
+        .map(PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                workspace_root.join(path)
+            }
+        })
+        .unwrap_or_else(|_| {
+            workspace_root.join("specs/differential/ijepa_strict_tiny_fixture.json")
+        })
+}
+
+fn load_parity_fixture() -> ParityFixture {
+    let fixture_path = parity_fixture_path();
+    let render_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../specs/differential/render_fixture_for_rust.py");
+    let output = Command::new("python3")
+        .arg(&render_script)
+        .arg(&fixture_path)
+        .output()
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to render parity fixture {} with {}: {error}",
+                fixture_path.display(),
+                render_script.display()
+            )
+        });
+
+    if !output.status.success() {
+        panic!(
+            "failed to render parity fixture {}: {}",
+            fixture_path.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let stdout = String::from_utf8(output.stdout).expect("fixture renderer must emit utf-8");
+    let mut scalars = HashMap::<String, String>::new();
+    let mut lists = HashMap::<String, Vec<usize>>::new();
+    let mut tensors = HashMap::<String, FixtureTensor>::new();
+    let mut weights = HashMap::<String, FixtureTensor>::new();
+    let mut float_lists = HashMap::<String, Vec<f32>>::new();
+
+    for line in stdout.lines() {
+        if line.is_empty() {
+            continue;
+        }
+
+        let mut parts = line.splitn(4, '\t');
+        let kind = parts.next().expect("renderer lines must include a kind");
+        match kind {
+            "scalar" => {
+                let key = parts.next().expect("scalar line missing key").to_owned();
+                let value = parts.next().expect("scalar line missing value").to_owned();
+                scalars.insert(key, value);
+            }
+            "usizes" => {
+                let key = parts.next().expect("usize list missing key").to_owned();
+                let values = parts
+                    .next()
+                    .expect("usize list missing values")
+                    .split(',')
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.parse::<usize>().expect("invalid usize list element"))
+                    .collect();
+                lists.insert(key, values);
+            }
+            "tensor" | "weight" => {
+                let key = parts.next().expect("tensor line missing key").to_owned();
+                let shape = parts
+                    .next()
+                    .expect("tensor line missing shape")
+                    .split(',')
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.parse::<usize>().expect("invalid tensor shape"))
+                    .collect();
+                let values = parts
+                    .next()
+                    .expect("tensor line missing values")
+                    .split(',')
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.parse::<f32>().expect("invalid tensor value"))
+                    .collect();
+                let tensor = FixtureTensor { shape, values };
+                if kind == "tensor" {
+                    tensors.insert(key, tensor);
+                } else {
+                    weights.insert(key, tensor);
+                }
+            }
+            "floatlist" => {
+                let key = parts.next().expect("float list missing key").to_owned();
+                let values = parts
+                    .next()
+                    .expect("float list missing values")
+                    .split(',')
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.parse::<f32>().expect("invalid float list element"))
+                    .collect();
+                float_lists.insert(key, values);
+            }
+            _ => panic!("unexpected fixture line kind: {kind}"),
+        }
+    }
+
+    fn take_scalar(map: &mut HashMap<String, String>, key: &str) -> String {
+        map.remove(key)
+            .unwrap_or_else(|| panic!("missing scalar fixture field {key}"))
+    }
+
+    fn take_usizes(map: &mut HashMap<String, Vec<usize>>, key: &str) -> Vec<usize> {
+        map.remove(key)
+            .unwrap_or_else(|| panic!("missing usize fixture field {key}"))
+    }
+
+    fn take_tensor(map: &mut HashMap<String, FixtureTensor>, key: &str) -> FixtureTensor {
+        map.remove(key)
+            .unwrap_or_else(|| panic!("missing tensor fixture field {key}"))
+    }
+
+    let encoder = VitConfig {
+        in_channels: take_scalar(&mut scalars, "config.encoder.in_channels")
+            .parse()
+            .expect("invalid encoder.in_channels"),
+        image_height: take_scalar(&mut scalars, "config.encoder.image_height")
+            .parse()
+            .expect("invalid encoder.image_height"),
+        image_width: take_scalar(&mut scalars, "config.encoder.image_width")
+            .parse()
+            .expect("invalid encoder.image_width"),
+        patch_size: {
+            let values = take_usizes(&mut lists, "config.encoder.patch_size");
+            (values[0], values[1])
+        },
+        embed_dim: take_scalar(&mut scalars, "config.encoder.embed_dim")
+            .parse()
+            .expect("invalid encoder.embed_dim"),
+        num_layers: take_scalar(&mut scalars, "config.encoder.num_layers")
+            .parse()
+            .expect("invalid encoder.num_layers"),
+        num_heads: take_scalar(&mut scalars, "config.encoder.num_heads")
+            .parse()
+            .expect("invalid encoder.num_heads"),
+        mlp_dim: take_scalar(&mut scalars, "config.encoder.mlp_dim")
+            .parse()
+            .expect("invalid encoder.mlp_dim"),
+        dropout: take_scalar(&mut scalars, "config.encoder.dropout")
+            .parse()
+            .expect("invalid encoder.dropout"),
+    };
+    let predictor = TransformerPredictorConfig {
+        encoder_embed_dim: take_scalar(&mut scalars, "config.predictor.encoder_embed_dim")
+            .parse()
+            .expect("invalid predictor.encoder_embed_dim"),
+        predictor_embed_dim: take_scalar(&mut scalars, "config.predictor.predictor_embed_dim")
+            .parse()
+            .expect("invalid predictor.predictor_embed_dim"),
+        num_layers: take_scalar(&mut scalars, "config.predictor.num_layers")
+            .parse()
+            .expect("invalid predictor.num_layers"),
+        num_heads: take_scalar(&mut scalars, "config.predictor.num_heads")
+            .parse()
+            .expect("invalid predictor.num_heads"),
+        max_target_len: take_scalar(&mut scalars, "config.predictor.max_target_len")
+            .parse()
+            .expect("invalid predictor.max_target_len"),
+    };
+
+    let energy = float_lists
+        .remove("energy")
+        .expect("missing energy fixture field");
+
+    ParityFixture {
+        metadata: ParityMetadata {
+            abs_tolerance: take_scalar(&mut scalars, "metadata.abs_tolerance")
+                .parse()
+                .expect("invalid abs tolerance"),
+            rel_tolerance: take_scalar(&mut scalars, "metadata.rel_tolerance")
+                .parse()
+                .expect("invalid rel tolerance"),
+        },
+        config: ParityConfig { encoder, predictor },
+        weights,
+        raw_input: take_tensor(&mut tensors, "raw_input"),
+        mask: FixtureMask {
+            context_indices: take_usizes(&mut lists, "mask.context_indices"),
+            target_indices: take_usizes(&mut lists, "mask.target_indices"),
+            total_tokens: take_scalar(&mut scalars, "mask.total_tokens")
+                .parse()
+                .expect("invalid mask.total_tokens"),
+        },
+        target_positions: take_usizes(&mut lists, "target_positions"),
+        context: take_tensor(&mut tensors, "context"),
+        target: take_tensor(&mut tensors, "target"),
+        predicted: take_tensor(&mut tensors, "predicted"),
+        energy,
+    }
+}
+
+fn tensor_from_fixture<const D: usize>(fixture: &FixtureTensor) -> Tensor<TestBackend, D> {
+    let shape: [usize; D] = fixture
+        .shape
+        .clone()
+        .try_into()
+        .unwrap_or_else(|_| panic!("invalid fixture rank for shape {:?}", fixture.shape));
+    Tensor::from_floats(
+        burn::tensor::TensorData::new(fixture.values.clone(), shape),
+        &device(),
+    )
+}
+
+fn assert_fixture_tensor_close<const D: usize>(
+    name: &str,
+    actual: Tensor<TestBackend, D>,
+    expected: &FixtureTensor,
+    abs_tolerance: f32,
+    rel_tolerance: f32,
+) {
+    assert_eq!(
+        actual.dims().to_vec(),
+        expected.shape,
+        "{name} shape mismatch"
+    );
+
+    let actual_values = actual.into_data().to_vec::<f32>().unwrap();
+    assert_eq!(
+        actual_values.len(),
+        expected.values.len(),
+        "{name} flattened length mismatch"
+    );
+
+    let mut max_abs_diff = 0.0f32;
+    for (index, (actual_value, expected_value)) in
+        actual_values.iter().zip(expected.values.iter()).enumerate()
+    {
+        let abs_diff = (actual_value - expected_value).abs();
+        let allowed = abs_tolerance.max(rel_tolerance * expected_value.abs().max(1.0));
+        max_abs_diff = max_abs_diff.max(abs_diff);
+        assert!(
+            abs_diff <= allowed,
+            "{name} mismatch at index {index}: actual={actual_value}, expected={expected_value}, abs_diff={abs_diff}, allowed={allowed}, max_abs_diff={max_abs_diff}"
+        );
+    }
+}
+
+fn load_fixture_model(fixture: &ParityFixture) -> jepa_vision::image::IJepa<TestBackend> {
+    let config = IJepaConfig {
+        encoder: fixture.config.encoder.clone(),
+        predictor: fixture.config.predictor.clone(),
+    };
+    let model = config.init::<TestBackend>(&device());
+    let mut mapper = FixtureWeightMapper::new(device(), fixture.weights.clone());
+    let model = model.map(&mut mapper);
+    mapper
+        .into_result()
+        .unwrap_or_else(|error| panic!("failed to map fixture weights: {error}"));
+    model
+}
+
+fn fixture_mask_spec(mask: &FixtureMask) -> MaskSpec {
+    MaskSpec {
+        context_indices: mask.context_indices.clone(),
+        target_indices: mask.target_indices.clone(),
+        total_tokens: mask.total_tokens,
+    }
 }
 
 // ---- I-JEPA Integration Tests (matching Gherkin scenarios) ----
@@ -273,6 +710,67 @@ fn test_ijepa_strict_context_isolates_hidden_patches() {
         diff < 1e-5,
         "strict image path leaked hidden patches, diff={diff}"
     );
+}
+
+#[test]
+#[ignore = "run via scripts/run_parity_suite.sh"]
+fn test_ijepa_strict_fixture_parity() {
+    let fixture = load_parity_fixture();
+    let model = load_fixture_model(&fixture);
+    let images = tensor_from_fixture::<4>(&fixture.raw_input);
+    let energy_fn = jepa_core::energy::L2Energy;
+    let regularizer = ZeroRegularizer;
+    let mask = fixture_mask_spec(&fixture.mask);
+
+    assert_eq!(
+        fixture.target_positions, fixture.mask.target_indices,
+        "fixture target_positions must match the strict target mask"
+    );
+    assert!(mask.validate().is_ok(), "fixture mask must be valid");
+
+    let output = model
+        .try_forward_step_strict(&images, mask, &energy_fn, &regularizer, 0.0)
+        .expect("fixture-backed strict forward step should succeed");
+
+    assert_fixture_tensor_close(
+        "context",
+        output.context.embeddings,
+        &fixture.context,
+        fixture.metadata.abs_tolerance,
+        fixture.metadata.rel_tolerance,
+    );
+    assert_fixture_tensor_close(
+        "target",
+        output.target.embeddings,
+        &fixture.target,
+        fixture.metadata.abs_tolerance,
+        fixture.metadata.rel_tolerance,
+    );
+    assert_fixture_tensor_close(
+        "predicted",
+        output.predicted.embeddings,
+        &fixture.predicted,
+        fixture.metadata.abs_tolerance,
+        fixture.metadata.rel_tolerance,
+    );
+
+    let energy_values = output.energy.value.into_data().to_vec::<f32>().unwrap();
+    assert_eq!(
+        energy_values.len(),
+        fixture.energy.len(),
+        "energy length mismatch"
+    );
+    for (index, (actual, expected)) in energy_values.iter().zip(fixture.energy.iter()).enumerate() {
+        let abs_diff = (actual - expected).abs();
+        let allowed = fixture
+            .metadata
+            .abs_tolerance
+            .max(fixture.metadata.rel_tolerance * expected.abs().max(1.0));
+        assert!(
+            abs_diff <= allowed,
+            "energy mismatch at index {index}: actual={actual}, expected={expected}, abs_diff={abs_diff}, allowed={allowed}"
+        );
+    }
 }
 
 // ---- V-JEPA Integration Tests ----

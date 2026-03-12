@@ -14,7 +14,7 @@ readme = "../../README.md"
 documentation = "https://docs.rs/jepa-world"
 
 [dependencies]
-jepa-core = { path = "../jepa-core" }
+jepa-core = { path = "../jepa-core", version = "0.1.0" }
 burn = { workspace = true }
 thiserror = { workspace = true }
 rand = { workspace = true }

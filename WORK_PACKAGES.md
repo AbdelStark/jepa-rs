@@ -11,6 +11,8 @@ Read first:
 
 ## WP-001: Strict Masked Encoder Design
 
+Status: complete
+
 **Objective**: Decide how strict pre-encoder masking will work for image and video paths without casually breaking public contracts.
 
 **Why**: The current generic trainer slices tokens after encoder forward. That is an approximation, not faithful JEPA semantics.
@@ -38,6 +40,8 @@ Read first:
 
 ## WP-002: Image Strict Masked Path
 
+Status: complete
+
 **Objective**: Implement a strict masked training path for image JEPA where hidden target patches do not influence context encoder attention.
 
 **Context**:
@@ -60,6 +64,8 @@ Read first:
 
 ## WP-003: Video Strict Masked Path
 
+Status: complete
+
 **Objective**: Extend the strict masked design to the video JEPA path.
 
 **Context**:
@@ -80,6 +86,8 @@ Read first:
 **Dependencies**: WP-001, WP-002
 
 ## WP-004: Differential Parity Harness
+
+Status: complete for the first strict image fixture, with broader fixture coverage still remaining
 
 **Objective**: Prove that key image-path behavior matches a Python reference implementation closely enough to trust refactors.
 
@@ -102,6 +110,8 @@ Read first:
 
 ## WP-005: Runtime Validation Cleanup
 
+Status: complete for the highest-risk caller-triggerable misuse paths
+
 **Objective**: Reduce surprising runtime panics in public-facing APIs and replace them with clearer contracts or fallible alternatives.
 
 **Context**:
@@ -122,6 +132,8 @@ Read first:
 **Dependencies**: none
 
 ## WP-006: Fuzzing, Coverage, And Benchmark Hardening
+
+Status: complete for the current verification surface, with baseline maintenance still ongoing
 
 **Objective**: Strengthen machine-enforced quality gates beyond the current unit and property suite.
 
@@ -144,7 +156,9 @@ Read first:
 
 ## WP-007: ONNX Runtime Integration
 
-**Objective**: Replace the current ONNX stub with a functional runtime-backed implementation.
+Status: deferred pending explicit scope and dependency approval
+
+**Objective**: Expand the current parser-backed ONNX adapter to functional runtime-backed execution if that scope is explicitly approved.
 
 **Context**:
 - Modify `crates/jepa-compat/src/onnx.rs`
@@ -159,11 +173,13 @@ Read first:
 **Acceptance criteria**:
 - [ ] Real ONNX files can be inspected
 - [ ] Missing runtime and invalid model states are clearly distinguished
-- [ ] The README and docs stop describing ONNX as a stub
+- [ ] The README and docs describe the supported runtime boundary precisely
 
 **Dependencies**: human approval for dependency changes
 
 ## WP-008: Release Candidate Hardening
+
+Status: complete for local release-candidate hardening; first external publish exercise still pending
 
 **Objective**: Prepare the workspace for external publication and long-lived maintenance.
 
@@ -185,11 +201,7 @@ Read first:
 
 ## Current Recommended Start Order
 
-1. WP-001
-2. WP-002
-3. WP-003
-4. WP-004
-5. WP-005
-6. WP-006
-7. WP-007
-8. WP-008
+1. Expand WP-004 with additional canonical parity fixtures and, if approved later, strict video parity.
+2. Exercise the first real release candidate flow using WP-008 in dependency order.
+3. Close the remaining contributor and operator guidance gaps alongside the release rehearsal.
+4. Execute WP-007 only if ONNX runtime expansion is explicitly approved.

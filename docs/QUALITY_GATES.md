@@ -13,6 +13,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test --doc
 cargo doc --workspace --no-deps
+scripts/run_parity_suite.sh
 ```
 
 ## Coverage Policy
@@ -77,15 +78,42 @@ Review policy:
 
 ## Differential Parity
 
-Reference parity is exercised through exported fixture workflows rather than
-hard-coding Python dependencies into the Rust workspace.
+Reference parity is exercised through exported fixtures rather than hard-coding
+the Python reference environment into the Rust workspace.
 
-Current command surface:
+Primary command:
+
+```bash
+scripts/run_parity_suite.sh
+```
+
+Override the bundled fixture when you want to validate a different export:
 
 ```bash
 scripts/run_parity_suite.sh /path/to/ijepa-reference-fixture.json
 ```
 
-The fixture is expected to come from the canonical Python reference stack.
-The script is intentionally separate so CI can keep parity optional until the
-reference environment is provisioned.
+Current policy:
+
+- CI runs `scripts/run_parity_suite.sh` against the checked-in strict image fixture at [`specs/differential/ijepa_strict_tiny_fixture.json`](../specs/differential/ijepa_strict_tiny_fixture.json).
+- The parity command requires `python3` to decode the exported JSON fixture into the Rust-side comparator.
+- The bundled fixture compares strict I-JEPA context, target, predicted, and energy outputs with `abs_tolerance=1e-5` and `rel_tolerance=1e-5`.
+- Larger or additional reference fixtures remain optional until maintainers provision them explicitly.
+
+## Package Smoke
+
+Release-candidate hardening includes a packaging dry-run for each crate:
+
+```bash
+cargo package -p jepa-core --no-verify
+cargo package -p jepa-vision --no-verify --exclude-lockfile
+cargo package -p jepa-world --no-verify --exclude-lockfile
+cargo package -p jepa-train --no-verify --exclude-lockfile
+cargo package -p jepa-compat --no-verify --exclude-lockfile
+```
+
+Policy:
+
+- CI runs the package smoke commands above on every change.
+- `--exclude-lockfile` is required for downstream unpublished workspace crates so Cargo does not try to resolve internal crate versions from crates.io before the staged publish happens.
+- Once the crates are published, maintainers may optionally rerun downstream packaging without `--exclude-lockfile` as an extra registry-resolution check.

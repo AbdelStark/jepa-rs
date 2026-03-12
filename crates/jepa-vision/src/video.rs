@@ -16,8 +16,8 @@ use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;
 use burn::tensor::{backend::Backend, Int, TensorData};
 
-use jepa_core::types::{Energy, MaskSpec, Representation};
-use jepa_core::{CollapseRegularizer, Encoder, EnergyFn, Predictor};
+use jepa_core::types::{Energy, MaskError, MaskSpec, Representation};
+use jepa_core::{CollapseRegularizer, Encoder, EnergyFn};
 
 /// Configuration for a V-JEPA video encoder.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -587,8 +587,21 @@ pub struct StrictVJepaForwardOutput<B: Backend> {
     pub target: Representation<B>,
 }
 
+/// Errors returned by [`VJepa::try_forward_step_strict`].
+#[derive(Debug, thiserror::Error)]
+pub enum StrictVJepaError {
+    #[error(transparent)]
+    InvalidMask(#[from] MaskError),
+    #[error(transparent)]
+    Predictor(#[from] crate::image::PredictorError),
+}
+
 impl<B: Backend> VJepa<B> {
     /// Encode only the visible tubelets before context self-attention runs.
+    ///
+    /// This method assumes `context_indices` are already valid for the current
+    /// tubelet grid. Use [`VJepa::try_forward_step_strict`] when the indices
+    /// come from caller-controlled masking data.
     pub fn encode_context_strict(
         &self,
         video: &Tensor<B, 5>,
@@ -599,6 +612,12 @@ impl<B: Backend> VJepa<B> {
     }
 
     /// Execute a strict masked V-JEPA forward step.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `mask` is invalid or if the predictor receives target
+    /// positions outside its configured capacity. Use
+    /// [`VJepa::try_forward_step_strict`] for typed error reporting.
     pub fn forward_step_strict<EF, CR>(
         &self,
         video: &Tensor<B, 5>,
@@ -611,8 +630,24 @@ impl<B: Backend> VJepa<B> {
         EF: EnergyFn<B>,
         CR: CollapseRegularizer<B>,
     {
-        mask.validate()
-            .expect("strict V-JEPA forward step requires a valid mask");
+        self.try_forward_step_strict(video, mask, energy_fn, regularizer, reg_weight)
+            .expect("strict V-JEPA forward step requires a valid mask and predictor positions within capacity")
+    }
+
+    /// Execute a strict masked V-JEPA forward step with typed error reporting.
+    pub fn try_forward_step_strict<EF, CR>(
+        &self,
+        video: &Tensor<B, 5>,
+        mask: MaskSpec,
+        energy_fn: &EF,
+        regularizer: &CR,
+        reg_weight: f64,
+    ) -> Result<StrictVJepaForwardOutput<B>, StrictVJepaError>
+    where
+        EF: EnergyFn<B>,
+        CR: CollapseRegularizer<B>,
+    {
+        mask.validate()?;
 
         let context = self.encode_context_strict(video, &mask.context_indices);
         let target_full = self.target_encoder.forward(video);
@@ -624,7 +659,7 @@ impl<B: Backend> VJepa<B> {
             batch,
             &video.device(),
         );
-        let predicted = self.predictor.predict(&context, &target_positions, None);
+        let predicted = self.predictor.try_predict(&context, &target_positions)?;
 
         let num_targets = target.seq_len();
         let embed_dim = target.embed_dim();
@@ -641,7 +676,7 @@ impl<B: Backend> VJepa<B> {
         let regularization = regularizer.loss(&pred_flat, &target_flat);
         let total_loss = energy.value.clone() + regularization.clone() * reg_weight;
 
-        StrictVJepaForwardOutput {
+        Ok(StrictVJepaForwardOutput {
             energy,
             regularization,
             total_loss,
@@ -649,7 +684,7 @@ impl<B: Backend> VJepa<B> {
             context,
             predicted,
             target,
-        }
+        })
     }
 }
 
@@ -1058,6 +1093,28 @@ mod tests {
             total_loss.is_finite(),
             "strict video forward loss should be finite"
         );
+    }
+
+    #[test]
+    fn test_try_strict_video_forward_step_rejects_invalid_mask() {
+        let config = VJepaConfig::tiny_test();
+        let model = config.init::<TestBackend>(&device());
+        let video = Tensor::ones([1, 1, 4, 8, 8], &device());
+        let invalid_mask = MaskSpec {
+            context_indices: vec![0],
+            target_indices: vec![],
+            total_tokens: 32,
+        };
+        let energy_fn = jepa_core::energy::L2Energy;
+        let regularizer = jepa_core::collapse::VICReg::default();
+
+        let err = model
+            .try_forward_step_strict(&video, invalid_mask, &energy_fn, &regularizer, 1.0)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            StrictVJepaError::InvalidMask(MaskError::EmptyTarget)
+        ));
     }
 
     /// BDD: "V-JEPA full pipeline with spatiotemporal masking"
