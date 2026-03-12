@@ -15,6 +15,25 @@ use crate::types::{Energy, Representation};
 /// An energy function measures how compatible two representations are.
 /// In JEPA training, this is the primary loss signal: the model learns
 /// to minimize the energy between predicted and actual target representations.
+///
+/// # Example
+///
+/// ```
+/// use jepa_core::energy::{EnergyFn, L2Energy};
+/// use jepa_core::types::Representation;
+/// use burn::tensor::{Tensor, ElementConversion};
+/// use burn_ndarray::NdArray;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let predicted = Representation::<B>::random([2, 4, 16], &device);
+/// let actual = Representation::<B>::random([2, 4, 16], &device);
+///
+/// let energy = L2Energy.compute(&predicted, &actual);
+/// let val: f32 = energy.value.into_scalar().elem();
+/// assert!(val >= 0.0);
+/// ```
 pub trait EnergyFn<B: Backend> {
     /// Compute energy (distance) between predicted and actual representations.
     ///

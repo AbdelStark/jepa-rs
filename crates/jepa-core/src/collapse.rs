@@ -52,6 +52,34 @@ impl<B: Backend> VICRegLoss<B> {
 /// 1. **Variance**: each embedding dimension has high variance across the batch
 /// 2. **Invariance**: representations of positive pairs are similar
 /// 3. **Covariance**: different embedding dimensions capture different information
+///
+/// # Example
+///
+/// ```
+/// use jepa_core::collapse::{VICReg, CollapseRegularizer};
+/// use burn::tensor::{Tensor, ElementConversion};
+/// use burn_ndarray::NdArray;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let vicreg = VICReg::default();
+/// let z_a: Tensor<B, 2> = Tensor::random(
+///     [32, 64],
+///     burn::tensor::Distribution::Normal(0.0, 1.0),
+///     &device,
+/// );
+/// let z_b = z_a.clone();
+///
+/// // Compute decomposed loss for logging
+/// let loss = vicreg.compute(&z_a, &z_b);
+/// let total: f32 = loss.total().into_scalar().elem();
+/// assert!(total.is_finite());
+///
+/// // Or use the trait interface for a single scalar
+/// let scalar_loss: f32 = vicreg.loss(&z_a, &z_b).into_scalar().elem();
+/// assert!(scalar_loss.is_finite());
+/// ```
 pub struct VICReg {
     /// Weight for the invariance term (default: 25.0).
     pub lambda_inv: f64,
