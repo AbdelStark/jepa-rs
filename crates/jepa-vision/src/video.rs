@@ -698,4 +698,67 @@ mod tests {
         let out = attn.forward(x);
         assert_eq!(out.dims(), [2, 8, 16]);
     }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn prop_video_config_num_tubelets(
+            grid_t in 1usize..4,
+            grid_h in 1usize..4,
+            grid_w in 1usize..4,
+        ) {
+            let tub = 2;
+            let config = VitVideoConfig {
+                in_channels: 1,
+                num_frames: grid_t * tub,
+                frame_height: grid_h * tub,
+                frame_width: grid_w * tub,
+                tubelet_size: (tub, tub, tub),
+                embed_dim: 16,
+                num_layers: 1,
+                num_heads: 2,
+                mlp_dim: 32,
+            };
+            prop_assert_eq!(config.grid_dims(), (grid_t, grid_h, grid_w));
+            prop_assert_eq!(config.num_tubelets(), grid_t * grid_h * grid_w);
+        }
+
+        #[test]
+        fn prop_rope3d_preserves_shape(
+            max_t in 1usize..3,
+            max_h in 1usize..3,
+            max_w in 1usize..3,
+        ) {
+            let embed_dim = 12; // divisible by 2, and 6/3=2 per axis
+            let config = RotaryPositionEncoding3DConfig::new(embed_dim, max_t, max_h, max_w);
+            let rope = config.init::<TestBackend>(&device());
+            let seq_len = max_t * max_h * max_w;
+            let x: Tensor<TestBackend, 3> = Tensor::ones([1, seq_len, embed_dim], &device());
+            let out = rope.forward(x);
+            prop_assert_eq!(out.dims(), [1, seq_len, embed_dim]);
+        }
+
+        #[test]
+        fn prop_rope3d_preserves_norm(
+            max_t in 1usize..3,
+            max_h in 2usize..4,
+            max_w in 2usize..4,
+        ) {
+            let embed_dim = 12;
+            let config = RotaryPositionEncoding3DConfig::new(embed_dim, max_t, max_h, max_w);
+            let rope = config.init::<TestBackend>(&device());
+            let seq_len = max_t * max_h * max_w;
+            let x: Tensor<TestBackend, 3> = Tensor::random(
+                [1, seq_len, embed_dim],
+                burn::tensor::Distribution::Normal(0.0, 1.0),
+                &device(),
+            );
+            let x_norm: f32 = (x.clone() * x.clone()).sum().into_scalar().elem();
+            let out = rope.forward(x);
+            let out_norm: f32 = (out.clone() * out.clone()).sum().into_scalar().elem();
+            let ratio = out_norm / x_norm;
+            prop_assert!((ratio - 1.0).abs() < 0.01, "3D RoPE norm ratio: {}", ratio);
+        }
+    }
 }

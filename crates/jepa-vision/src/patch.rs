@@ -178,4 +178,40 @@ mod tests {
         // We just check the shape is correct
         assert_eq!(output.dims(), [1, 4, 64]);
     }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn prop_num_patches_equals_grid_product(
+            grid_h in 1usize..8,
+            grid_w in 1usize..8,
+            patch_size in proptest::sample::select(vec![2usize, 4, 8]),
+        ) {
+            let config = PatchEmbeddingConfig::new(1, patch_size, patch_size, 16);
+            let pe = config.init::<TestBackend>(&device());
+            let h = grid_h * patch_size;
+            let w = grid_w * patch_size;
+            let np = pe.num_patches(h, w);
+            prop_assert_eq!(np, grid_h * grid_w);
+        }
+
+        #[test]
+        fn prop_patch_embedding_output_shape(
+            grid_h in 1usize..4,
+            grid_w in 1usize..4,
+            batch in 1usize..3,
+        ) {
+            let patch_size = 2;
+            let embed_dim = 8;
+            let config = PatchEmbeddingConfig::new(1, patch_size, patch_size, embed_dim);
+            let pe = config.init::<TestBackend>(&device());
+            let h = grid_h * patch_size;
+            let w = grid_w * patch_size;
+            let images: Tensor<TestBackend, 4> = Tensor::zeros([batch, 1, h, w], &device());
+            let output = pe.forward(images);
+            let expected_patches = grid_h * grid_w;
+            prop_assert_eq!(output.dims(), [batch, expected_patches, embed_dim]);
+        }
+    }
 }

@@ -119,6 +119,7 @@ mod tests {
     use burn::prelude::*;
     use burn::tensor::ElementConversion;
     use burn_ndarray::NdArray;
+    use proptest::prelude::*;
 
     type TestBackend = NdArray<f32>;
 
@@ -229,5 +230,39 @@ mod tests {
             .into_scalar()
             .elem();
         assert!(cost.abs() < 1e-6, "cost at goal should be ~0, got {cost}");
+    }
+
+    proptest! {
+        #[test]
+        fn prop_rollout_length_equals_actions_plus_one(num_actions in 0usize..20) {
+            let model = WorldModel::new(AdditiveDynamics, L2Cost);
+            let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+            let actions: Vec<Action<TestBackend>> = (0..num_actions)
+                .map(|_| Action::new(Tensor::zeros([1, 8], &device())))
+                .collect();
+
+            let trajectory = model.rollout(&initial, &actions);
+            prop_assert_eq!(trajectory.len(), num_actions + 1);
+        }
+
+        #[test]
+        fn prop_l2_cost_is_non_negative(
+            num_actions in 1usize..5,
+        ) {
+            let model = WorldModel::new(AdditiveDynamics, L2Cost);
+            let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+            let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+            let actions: Vec<Action<TestBackend>> = (0..num_actions)
+                .map(|_| Action::new(Tensor::ones([1, 8], &device())))
+                .collect();
+
+            let cost: f32 = model
+                .evaluate_plan(&initial, &actions, &goal)
+                .value
+                .into_scalar()
+                .elem();
+            prop_assert!(cost >= 0.0, "cost was negative: {cost}");
+            prop_assert!(cost.is_finite(), "cost was not finite");
+        }
     }
 }
