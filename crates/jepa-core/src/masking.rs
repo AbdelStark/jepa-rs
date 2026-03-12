@@ -108,9 +108,9 @@ impl MaskingStrategy for BlockMasking {
 
         // Ensure we have at least one context token
         if target_set.len() >= total {
-            // Remove one random target to ensure non-empty context
-            let first = *target_set.iter().next().unwrap();
-            target_set.remove(&first);
+            if let Some(&first) = target_set.iter().next() {
+                target_set.remove(&first);
+            }
         }
 
         let mut target_indices: Vec<usize> = target_set.into_iter().collect();
@@ -186,8 +186,9 @@ impl MaskingStrategy for SpatiotemporalMasking {
 
         // Ensure non-empty context
         if target_set.len() >= total {
-            let first = *target_set.iter().next().unwrap();
-            target_set.remove(&first);
+            if let Some(&first) = target_set.iter().next() {
+                target_set.remove(&first);
+            }
         }
 
         let mut target_indices: Vec<usize> = target_set.into_iter().collect();
@@ -250,8 +251,9 @@ impl MaskingStrategy for MultiBlockMasking {
 
         // Ensure non-empty context
         if target_set.len() >= total {
-            let first = *target_set.iter().next().unwrap();
-            target_set.remove(&first);
+            if let Some(&first) = target_set.iter().next() {
+                target_set.remove(&first);
+            }
         }
         // Ensure non-empty target
         if target_set.is_empty() {
@@ -403,6 +405,99 @@ mod tests {
         assert!(mask.validate().is_ok());
         assert!(!mask.context_indices.is_empty());
         assert!(!mask.target_indices.is_empty());
+    }
+
+    // --- Edge-case tests ---
+
+    #[test]
+    fn test_block_masking_minimum_grid_2x2() {
+        // Smallest grid where block masking can produce both context and target
+        let masking = BlockMasking {
+            num_targets: 1,
+            target_scale: (0.25, 0.5),
+            target_aspect_ratio: (1.0, 1.0),
+        };
+        let shape = InputShape::Image {
+            height: 2,
+            width: 2,
+        };
+        let mask = masking.generate_mask(&shape, &mut rng(42));
+        assert!(mask.validate().is_ok());
+        assert!(!mask.context_indices.is_empty());
+        assert!(!mask.target_indices.is_empty());
+        assert_eq!(mask.context_indices.len() + mask.target_indices.len(), 4);
+    }
+
+    #[test]
+    fn test_block_masking_maximum_coverage() {
+        // Many targets with high scale — tests the non-empty context guarantee
+        let masking = BlockMasking {
+            num_targets: 10,
+            target_scale: (0.8, 0.99),
+            target_aspect_ratio: (0.5, 2.0),
+        };
+        let shape = InputShape::Image {
+            height: 4,
+            width: 4,
+        };
+        let mask = masking.generate_mask(&shape, &mut rng(42));
+        assert!(mask.validate().is_ok());
+        assert!(
+            !mask.context_indices.is_empty(),
+            "must always have at least one context token"
+        );
+    }
+
+    #[test]
+    fn test_multi_block_masking_very_high_ratio() {
+        // mask_ratio near 1.0 — tests the non-empty context guarantee
+        let masking = MultiBlockMasking {
+            mask_ratio: 0.99,
+            num_blocks: 8,
+        };
+        let shape = InputShape::Image {
+            height: 4,
+            width: 4,
+        };
+        let mask = masking.generate_mask(&shape, &mut rng(42));
+        assert!(mask.validate().is_ok());
+        assert!(!mask.context_indices.is_empty());
+        assert!(!mask.target_indices.is_empty());
+    }
+
+    #[test]
+    fn test_spatiotemporal_masking_single_frame() {
+        // Video with 1 frame — degenerates to image-like behavior
+        let masking = SpatiotemporalMasking {
+            num_targets: 1,
+            temporal_extent: (1, 1),
+            spatial_scale: (0.1, 0.2),
+        };
+        let shape = InputShape::Video {
+            frames: 1,
+            height: 8,
+            width: 8,
+        };
+        let mask = masking.generate_mask(&shape, &mut rng(42));
+        assert!(mask.validate().is_ok());
+        assert_eq!(mask.context_indices.len() + mask.target_indices.len(), 64);
+    }
+
+    #[test]
+    fn test_spatiotemporal_masking_on_image_shape() {
+        // Image shape passed to spatiotemporal masking (1 frame fallback)
+        let masking = SpatiotemporalMasking {
+            num_targets: 2,
+            temporal_extent: (1, 1),
+            spatial_scale: (0.1, 0.2),
+        };
+        let shape = InputShape::Image {
+            height: 8,
+            width: 8,
+        };
+        let mask = masking.generate_mask(&shape, &mut rng(42));
+        assert!(mask.validate().is_ok());
+        assert_eq!(mask.context_indices.len() + mask.target_indices.len(), 64);
     }
 
     // --- Property-based tests ---

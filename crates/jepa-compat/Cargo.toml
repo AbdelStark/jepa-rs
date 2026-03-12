@@ -3,6 +3,8 @@ name = "jepa-compat"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+authors.workspace = true
 description = "PyTorch checkpoint compatibility: load safetensors weights into jepa-rs models"
 
 [dependencies]

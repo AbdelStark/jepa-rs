@@ -20,8 +20,11 @@ pub trait CostFunction<B: Backend> {
     /// Compute the cost of a trajectory relative to a goal.
     ///
     /// # Arguments
-    /// * `trajectory` - Sequence of state representations
+    /// * `trajectory` - Sequence of state representations (must be non-empty)
     /// * `goal` - Goal state representation
+    ///
+    /// # Panics
+    /// Implementations may panic if `trajectory` is empty.
     ///
     /// # Returns
     /// Cost as an energy value (lower = better)
@@ -434,6 +437,15 @@ mod tests {
             cost_a < cost_b,
             "plan toward goal should have lower cost: {cost_a} vs {cost_b}"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "trajectory must not be empty")]
+    fn test_l2_cost_empty_trajectory_panics() {
+        let cost = L2Cost;
+        let goal = Representation::<TestBackend>::new(Tensor::ones([1, 4, 8], &device()));
+        let empty: Vec<Representation<TestBackend>> = vec![];
+        let _ = cost.total_cost(&empty, &goal);
     }
 
     #[test]

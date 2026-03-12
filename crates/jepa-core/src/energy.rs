@@ -242,6 +242,71 @@ mod tests {
         assert!(val >= 0.0, "expected non-negative, got {val}");
     }
 
+    // --- Edge-case tests ---
+
+    #[test]
+    fn test_cosine_energy_with_near_zero_vectors() {
+        // Very small vectors — tests numerical stability of eps guard
+        let a = make_repr(&[1e-7, 1e-7, 1e-7, 1e-7], [1, 1, 4]);
+        let b = make_repr(&[1e-7, 1e-7, 1e-7, 1e-7], [1, 1, 4]);
+        let energy = CosineEnergy.compute(&a, &b);
+        let val: f32 = energy.value.into_scalar().elem();
+        assert!(
+            val.is_finite(),
+            "cosine energy should be finite for near-zero vectors, got {val}"
+        );
+    }
+
+    #[test]
+    fn test_cosine_energy_antiparallel_is_near_two() {
+        // Opposite-direction vectors: cosine = -1, energy = 1 - (-1) = 2
+        let a = make_repr(&[1.0, 0.0], [1, 1, 2]);
+        let b = make_repr(&[-1.0, 0.0], [1, 1, 2]);
+        let energy = CosineEnergy.compute(&a, &b);
+        let val: f32 = energy.value.into_scalar().elem();
+        assert!(
+            (val - 2.0).abs() < 1e-4,
+            "expected ~2.0 for antiparallel, got {val}"
+        );
+    }
+
+    #[test]
+    fn test_smooth_l1_small_differences_are_quadratic() {
+        // For |diff| < beta, SmoothL1 behaves like 0.5 * diff^2 / beta
+        let beta = 2.0;
+        let a = make_repr(&[0.0; 4], [1, 1, 4]);
+        let b = make_repr(&[0.5; 4], [1, 1, 4]); // diff = 0.5 < beta
+        let energy = SmoothL1Energy::new(beta).compute(&a, &b);
+        let val: f32 = energy.value.into_scalar().elem();
+        // Expected: 0.5 * 0.5^2 / 2.0 = 0.0625
+        assert!((val - 0.0625).abs() < 1e-4, "expected ~0.0625, got {val}");
+    }
+
+    #[test]
+    fn test_smooth_l1_large_differences_are_linear() {
+        // For |diff| >= beta, SmoothL1 behaves like |diff| - 0.5 * beta
+        let beta = 0.1;
+        let a = make_repr(&[0.0; 4], [1, 1, 4]);
+        let b = make_repr(&[5.0; 4], [1, 1, 4]); // diff = 5.0 >> beta
+        let energy = SmoothL1Energy::new(beta).compute(&a, &b);
+        let val: f32 = energy.value.into_scalar().elem();
+        // Expected: 5.0 - 0.5 * 0.1 = 4.95
+        assert!((val - 4.95).abs() < 1e-3, "expected ~4.95, got {val}");
+    }
+
+    #[test]
+    fn test_l2_energy_large_values_stays_finite() {
+        let data: Vec<f32> = (0..24).map(|i| i as f32 * 1000.0).collect();
+        let a = make_repr(&data, [2, 3, 4]);
+        let zeros = make_repr(&[0.0; 24], [2, 3, 4]);
+        let val: f32 = L2Energy.compute(&a, &zeros).value.into_scalar().elem();
+        assert!(
+            val.is_finite(),
+            "L2 energy should stay finite for large values, got {val}"
+        );
+        assert!(val > 0.0);
+    }
+
     // --- Property-based tests ---
 
     proptest! {
