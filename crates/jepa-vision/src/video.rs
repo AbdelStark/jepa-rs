@@ -522,11 +522,61 @@ impl<B: Backend> VideoMlp<B> {
     }
 }
 
+/// V-JEPA model combining video encoder pair and predictor.
+///
+/// Provides a high-level interface for the V-JEPA video pipeline per RFC-002 and RFC-003.
+/// Uses spatiotemporal masking of tubelets for self-supervised learning on video.
+#[derive(Module, Debug)]
+pub struct VJepa<B: Backend> {
+    /// Context encoder — trained via gradient descent.
+    pub context_encoder: VitVideoEncoder<B>,
+    /// Target encoder — updated via EMA (no gradients).
+    pub target_encoder: VitVideoEncoder<B>,
+    /// Predictor — predicts target tubelet representations from context.
+    pub predictor: crate::image::TransformerPredictor<B>,
+}
+
+/// Configuration for the V-JEPA model.
+#[derive(Debug, Clone)]
+pub struct VJepaConfig {
+    /// Video encoder config (shared by context and target encoders).
+    pub encoder: VitVideoConfig,
+    /// Predictor config.
+    pub predictor: crate::image::TransformerPredictorConfig,
+}
+
+impl VJepaConfig {
+    /// Create a tiny config suitable for testing.
+    pub fn tiny_test() -> Self {
+        let encoder = VitVideoConfig::tiny_test();
+        Self {
+            predictor: crate::image::TransformerPredictorConfig {
+                encoder_embed_dim: encoder.embed_dim,
+                predictor_embed_dim: 16,
+                num_layers: 1,
+                num_heads: 2,
+                max_target_len: 64,
+            },
+            encoder,
+        }
+    }
+
+    /// Initialize a [`VJepa`] model.
+    pub fn init<B: Backend>(&self, device: &B::Device) -> VJepa<B> {
+        VJepa {
+            context_encoder: self.encoder.init(device),
+            target_encoder: self.encoder.init(device),
+            predictor: self.predictor.init(device),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use burn::tensor::ElementConversion;
     use burn_ndarray::NdArray;
+    use jepa_core::Predictor;
 
     type TestBackend = NdArray<f32>;
 
@@ -760,5 +810,101 @@ mod tests {
             let ratio = out_norm / x_norm;
             prop_assert!((ratio - 1.0).abs() < 0.01, "3D RoPE norm ratio: {}", ratio);
         }
+    }
+
+    // ======================================================================
+    // V-JEPA model tests
+    // ======================================================================
+
+    #[test]
+    fn test_vjepa_config_tiny() {
+        let config = VJepaConfig::tiny_test();
+        assert_eq!(config.encoder.embed_dim, 32);
+        assert_eq!(config.predictor.predictor_embed_dim, 16);
+        assert_eq!(config.predictor.encoder_embed_dim, 32);
+    }
+
+    #[test]
+    fn test_vjepa_model_init() {
+        let config = VJepaConfig::tiny_test();
+        let model = config.init::<TestBackend>(&device());
+
+        assert_eq!(model.context_encoder.embed_dim, 32);
+        assert_eq!(model.target_encoder.embed_dim, 32);
+    }
+
+    /// BDD: "V-JEPA full pipeline with spatiotemporal masking"
+    /// Given a V-JEPA model with video encoder pair and predictor
+    /// When I encode a video clip, generate a spatiotemporal mask,
+    ///   gather target tubelets, and predict from context
+    /// Then the energy should be finite and non-negative
+    #[test]
+    fn bdd_vjepa_full_pipeline_with_spatiotemporal_masking() {
+        use jepa_core::{CollapseRegularizer, EnergyFn, MaskingStrategy};
+        use rand::SeedableRng;
+
+        let config = VJepaConfig::tiny_test();
+        let model = config.init::<TestBackend>(&device());
+
+        // Video: [batch=1, channels=1, frames=4, height=8, width=8]
+        let video: Tensor<TestBackend, 5> = Tensor::random(
+            [1, 1, 4, 8, 8],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+
+        // 1. Encode with both encoders
+        let context_repr = model.context_encoder.forward(&video);
+        let target_repr = model.target_encoder.forward(&video);
+
+        // grid: (4/2, 8/2, 8/2) = (2, 4, 4) = 32 tubelets
+        assert_eq!(context_repr.seq_len(), 32);
+        assert_eq!(target_repr.seq_len(), 32);
+
+        // 2. Generate spatiotemporal mask
+        let masking = jepa_core::masking::SpatiotemporalMasking {
+            num_targets: 2,
+            temporal_extent: (1, 2),
+            spatial_scale: (0.1, 0.2),
+        };
+        let shape = jepa_core::types::InputShape::Video {
+            frames: 2,
+            height: 4,
+            width: 4,
+        };
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+        let mask = masking.generate_mask(&shape, &mut rng);
+        assert!(mask.validate().is_ok());
+        assert_eq!(mask.context_indices.len() + mask.target_indices.len(), 32);
+
+        // 3. Gather target tubelets
+        let target_gathered = target_repr.gather(&mask.target_indices);
+        assert_eq!(target_gathered.seq_len(), mask.target_indices.len());
+
+        // 4. Predict targets from context
+        let num_targets = mask.target_indices.len();
+        let target_pos: Tensor<TestBackend, 2> = Tensor::zeros([1, num_targets], &device());
+        let predicted = model.predictor.predict(&context_repr, &target_pos, None);
+        assert_eq!(predicted.seq_len(), num_targets);
+        assert_eq!(predicted.embed_dim(), 32);
+
+        // 5. Compute energy
+        let energy = jepa_core::energy::L2Energy.compute(&predicted, &target_gathered);
+        let val: f32 = energy.value.into_scalar().elem();
+        assert!(val.is_finite(), "energy should be finite, got {val}");
+        assert!(val >= 0.0, "L2 energy should be non-negative, got {val}");
+
+        // 6. Collapse regularization
+        let embed_dim = predicted.embed_dim();
+        let pred_flat = predicted.embeddings.reshape([num_targets, embed_dim]);
+        let target_flat = target_gathered.embeddings.reshape([num_targets, embed_dim]);
+        let reg: f32 = jepa_core::collapse::VICReg::default()
+            .loss(&pred_flat, &target_flat)
+            .into_scalar()
+            .elem();
+        assert!(
+            reg.is_finite(),
+            "regularization should be finite, got {reg}"
+        );
     }
 }
