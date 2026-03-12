@@ -30,6 +30,19 @@ pub struct JepaLevel<B: Backend> {
 /// Processes representations through a stack of JEPA levels,
 /// where each level operates at progressively coarser temporal
 /// and spatial scales.
+///
+/// # Example
+///
+/// ```
+/// use jepa_world::hierarchy::HierarchicalJepa;
+/// use burn_ndarray::NdArray;
+///
+/// type B = NdArray<f32>;
+///
+/// // An empty hierarchy is valid (zero levels)
+/// let hjepa = HierarchicalJepa::<B>::new(vec![]);
+/// assert_eq!(hjepa.num_levels(), 0);
+/// ```
 pub struct HierarchicalJepa<B: Backend> {
     /// Stack of JEPA levels, from finest (index 0) to coarsest.
     pub levels: Vec<JepaLevel<B>>,

@@ -29,6 +29,28 @@ pub trait CostFunction<B: Backend> {
 }
 
 /// L2 cost: distance between final state and goal in representation space.
+///
+/// # Example
+///
+/// ```
+/// use burn::prelude::*;
+/// use burn_ndarray::NdArray;
+/// use jepa_core::types::Representation;
+/// use jepa_world::planner::{L2Cost, CostFunction};
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let cost = L2Cost;
+/// let state: Representation<B> = Representation::new(Tensor::zeros([1, 4, 8], &device));
+/// let goal: Representation<B> = Representation::new(Tensor::ones([1, 4, 8], &device));
+///
+/// let trajectory = vec![state];
+/// let energy = cost.total_cost(&trajectory, &goal);
+/// // Energy should be positive when state differs from goal
+/// let dims = energy.value.dims();
+/// assert_eq!(dims, [1]);
+/// ```
 pub struct L2Cost;
 
 impl<B: Backend> CostFunction<B> for L2Cost {
@@ -114,6 +136,24 @@ impl<B: Backend, D: ActionConditionedPredictor<B>, C: CostFunction<B>> WorldMode
 }
 
 /// Configuration for the random-shooting planner (CEM-style).
+///
+/// # Example
+///
+/// ```
+/// use jepa_world::planner::RandomShootingConfig;
+///
+/// let config = RandomShootingConfig {
+///     num_candidates: 128,
+///     num_iterations: 10,
+///     num_elites: 16,
+///     init_std: 2.0,
+/// };
+/// assert_eq!(config.num_candidates, 128);
+///
+/// // Default configuration is also available:
+/// let default = RandomShootingConfig::default();
+/// assert_eq!(default.num_candidates, 64);
+/// ```
 #[derive(Debug, Clone)]
 pub struct RandomShootingConfig {
     /// Number of candidate action sequences to sample per iteration.
