@@ -9,9 +9,12 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use burn::prelude::*;
 use burn_ndarray::NdArray;
 
+use jepa_core::collapse::VICReg;
+use jepa_core::energy::L2Energy;
+use jepa_core::types::MaskSpec;
 use jepa_core::types::Representation;
 use jepa_core::Predictor;
-use jepa_vision::image::TransformerPredictorConfig;
+use jepa_vision::image::{IJepaConfig, TransformerPredictorConfig};
 use jepa_vision::patch::PatchEmbeddingConfig;
 use jepa_vision::vit::VitConfig;
 
@@ -109,10 +112,51 @@ fn bench_predictor(c: &mut Criterion) {
     group.finish();
 }
 
+fn fixed_image_mask() -> MaskSpec {
+    MaskSpec {
+        context_indices: vec![0, 1, 4, 5, 10, 11, 14, 15],
+        target_indices: vec![2, 3, 6, 7, 8, 9, 12, 13],
+        total_tokens: 16,
+    }
+}
+
+fn bench_ijepa_strict_forward(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vision/ijepa_strict_forward");
+    let config = IJepaConfig::tiny_test();
+    let model = config.init::<B>(&device());
+    let energy_fn = L2Energy;
+    let regularizer = VICReg::default();
+    let mask = fixed_image_mask();
+
+    for &batch in &[1, 2] {
+        let images: Tensor<B, 4> = Tensor::ones([batch, 1, 8, 8], &device());
+
+        group.bench_with_input(
+            BenchmarkId::from_parameter(format!("tiny_b{batch}")),
+            &images,
+            |bencher, images| {
+                bencher.iter(|| {
+                    let output = model.forward_step_strict(
+                        black_box(images),
+                        black_box(mask.clone()),
+                        black_box(&energy_fn),
+                        black_box(&regularizer),
+                        black_box(1.0),
+                    );
+                    black_box(output);
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_patch_embedding,
     bench_vit_encoder,
     bench_predictor,
+    bench_ijepa_strict_forward,
 );
 criterion_main!(benches);

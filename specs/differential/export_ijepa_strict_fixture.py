@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 
-OUTPUT_PATH = Path(__file__).with_name("ijepa_strict_tiny_fixture.json")
+OUTPUT_DIR = Path(__file__).resolve().parent
 
 
 def linear(x: np.ndarray, weight: np.ndarray, bias: np.ndarray) -> np.ndarray:
@@ -16,7 +16,9 @@ def linear(x: np.ndarray, weight: np.ndarray, bias: np.ndarray) -> np.ndarray:
     )
 
 
-def layer_norm(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray, epsilon: float = 1e-5) -> np.ndarray:
+def layer_norm(
+    x: np.ndarray, gamma: np.ndarray, beta: np.ndarray, epsilon: float = 1e-5
+) -> np.ndarray:
     mean = x.mean(axis=-1, keepdims=True)
     var = ((x - mean) ** 2).mean(axis=-1, keepdims=True)
     normalized = (x - mean) / np.sqrt(var + epsilon)
@@ -87,7 +89,14 @@ def rope2d(x: np.ndarray, height: int, width: int) -> np.ndarray:
     return np.concatenate([out1, out2], axis=2)
 
 
-def attention(x: np.ndarray, qkv_weight: np.ndarray, qkv_bias: np.ndarray, out_weight: np.ndarray, out_bias: np.ndarray, num_heads: int) -> np.ndarray:
+def attention(
+    x: np.ndarray,
+    qkv_weight: np.ndarray,
+    qkv_bias: np.ndarray,
+    out_weight: np.ndarray,
+    out_bias: np.ndarray,
+    num_heads: int,
+) -> np.ndarray:
     batch, seq_len, embed_dim = x.shape
     head_dim = embed_dim // num_heads
     qkv = linear(x, qkv_weight, qkv_bias)
@@ -106,7 +115,13 @@ def attention(x: np.ndarray, qkv_weight: np.ndarray, qkv_bias: np.ndarray, out_w
     return linear(out, out_weight, out_bias)
 
 
-def mlp(x: np.ndarray, fc1_weight: np.ndarray, fc1_bias: np.ndarray, fc2_weight: np.ndarray, fc2_bias: np.ndarray) -> np.ndarray:
+def mlp(
+    x: np.ndarray,
+    fc1_weight: np.ndarray,
+    fc1_bias: np.ndarray,
+    fc2_weight: np.ndarray,
+    fc2_bias: np.ndarray,
+) -> np.ndarray:
     return linear(gelu(linear(x, fc1_weight, fc1_bias)), fc2_weight, fc2_bias)
 
 
@@ -138,156 +153,192 @@ def sinusoidal_prediction_tokens(max_target_len: int, embed_dim: int) -> np.ndar
     for position in range(max_target_len):
         for dim in range(embed_dim):
             exponent = (2 * (dim // 2)) / embed_dim
-            angle = position / (10000.0 ** exponent)
+            angle = position / (10000.0**exponent)
             tokens[position, dim] = math.sin(angle) if dim % 2 == 0 else math.cos(angle)
     return tokens
 
 
-def seq_values(shape: tuple[int, ...], start: float, step: float) -> np.ndarray:
-    values = start + step * np.arange(np.prod(shape), dtype=np.float32)
-    return values.reshape(shape).astype(np.float32)
+def bounded_values(shape: tuple[int, ...], low: float, high: float) -> np.ndarray:
+    count = int(np.prod(shape))
+    if count == 1:
+        return np.asarray([low], dtype=np.float32).reshape(shape)
+    values = np.linspace(low, high, num=count, dtype=np.float32)
+    return values.reshape(shape)
 
 
-def make_block(prefix: str, weight_specs: dict[str, tuple[tuple[int, ...], float, float]]) -> tuple[dict[str, np.ndarray], dict[str, dict[str, list[float] | list[int]]]]:
-    arrays = {}
-    payload = {}
-    for suffix, (shape, start, step) in weight_specs.items():
-        name = f"{prefix}.{suffix}"
-        array = seq_values(shape, start, step)
-        arrays[suffix] = array
-        payload[name] = {"shape": list(shape), "values": array.reshape(-1).tolist()}
+def tensor_payload(array: np.ndarray) -> dict[str, list[float] | list[int]]:
+    return {"shape": list(array.shape), "values": array.reshape(-1).tolist()}
+
+
+def structured_image(channels: int, height: int, width: int, low: float, high: float) -> np.ndarray:
+    return bounded_values((1, channels, height, width), low, high)
+
+
+def make_block(
+    prefix: str, embed_dim: int, mlp_dim: int, base_offset: float
+) -> tuple[dict[str, np.ndarray], dict[str, dict[str, list[float] | list[int]]]]:
+    arrays = {
+        "norm1.gamma": bounded_values((embed_dim,), 0.88 + base_offset, 1.08 + base_offset),
+        "norm1.beta": bounded_values((embed_dim,), -0.03 + base_offset, 0.03 + base_offset),
+        "attn.qkv.weight": bounded_values(
+            (embed_dim, 3 * embed_dim), -0.14 + base_offset, 0.14 + base_offset
+        ),
+        "attn.qkv.bias": bounded_values((3 * embed_dim,), -0.04 + base_offset, 0.04 + base_offset),
+        "attn.out_proj.weight": bounded_values(
+            (embed_dim, embed_dim), -0.1 + base_offset, 0.1 + base_offset
+        ),
+        "attn.out_proj.bias": bounded_values((embed_dim,), -0.025 + base_offset, 0.025 + base_offset),
+        "norm2.gamma": bounded_values((embed_dim,), 0.9 + base_offset, 1.1 + base_offset),
+        "norm2.beta": bounded_values((embed_dim,), -0.025 + base_offset, 0.025 + base_offset),
+        "mlp.fc1.weight": bounded_values((embed_dim, mlp_dim), -0.12 + base_offset, 0.12 + base_offset),
+        "mlp.fc1.bias": bounded_values((mlp_dim,), -0.03 + base_offset, 0.03 + base_offset),
+        "mlp.fc2.weight": bounded_values((mlp_dim, embed_dim), -0.09 + base_offset, 0.09 + base_offset),
+        "mlp.fc2.bias": bounded_values((embed_dim,), -0.02 + base_offset, 0.02 + base_offset),
+    }
+    payload = {
+        f"{prefix}.{name}": tensor_payload(array)
+        for name, array in arrays.items()
+    }
     return arrays, payload
 
 
-def make_encoder_weights(prefix: str) -> tuple[dict[str, np.ndarray], dict[str, dict[str, list[float] | list[int]]]]:
-    block_arrays, block_payload = make_block(
-        f"{prefix}.blocks.0",
-        {
-            "norm1.gamma": ((4,), 0.85, 0.07),
-            "norm1.beta": ((4,), -0.03, 0.02),
-            "attn.qkv.weight": ((4, 12), -0.24, 0.01),
-            "attn.qkv.bias": ((12,), -0.05, 0.01),
-            "attn.out_proj.weight": ((4, 4), -0.12, 0.015),
-            "attn.out_proj.bias": ((4,), -0.03, 0.02),
-            "norm2.gamma": ((4,), 0.9, 0.05),
-            "norm2.beta": ((4,), 0.02, -0.015),
-            "mlp.fc1.weight": ((4, 8), -0.16, 0.01),
-            "mlp.fc1.bias": ((8,), -0.04, 0.01),
-            "mlp.fc2.weight": ((8, 4), -0.08, 0.009),
-            "mlp.fc2.bias": ((4,), 0.01, 0.015),
-        },
-    )
-
+def make_encoder_weights(
+    prefix: str,
+    *,
+    in_channels: int,
+    patch_size: tuple[int, int],
+    embed_dim: int,
+    mlp_dim: int,
+    num_layers: int,
+    base_offset: float,
+) -> tuple[dict[str, np.ndarray], dict[str, dict[str, list[float] | list[int]]]]:
+    patch_dim = in_channels * patch_size[0] * patch_size[1]
     weights = {
-        "patch_embed.projection.weight": seq_values((4, 4), -0.18, 0.03),
-        "patch_embed.projection.bias": seq_values((4,), -0.06, 0.03),
-        "norm.gamma": np.asarray([1.05, 0.95, 1.1, 0.9], dtype=np.float32),
-        "norm.beta": np.asarray([0.02, -0.01, 0.03, -0.02], dtype=np.float32),
-        "blocks.0": block_arrays,
+        "patch_embed.projection.weight": bounded_values(
+            (patch_dim, embed_dim), -0.12 + base_offset, 0.12 + base_offset
+        ),
+        "patch_embed.projection.bias": bounded_values(
+            (embed_dim,), -0.03 + base_offset, 0.03 + base_offset
+        ),
+        "norm.gamma": bounded_values((embed_dim,), 0.94 + base_offset, 1.06 + base_offset),
+        "norm.beta": bounded_values((embed_dim,), -0.025 + base_offset, 0.025 + base_offset),
+        "blocks": [],
     }
 
     payload = {
-        f"{prefix}.patch_embed.projection.weight": {
-            "shape": [4, 4],
-            "values": weights["patch_embed.projection.weight"].reshape(-1).tolist(),
-        },
-        f"{prefix}.patch_embed.projection.bias": {
-            "shape": [4],
-            "values": weights["patch_embed.projection.bias"].reshape(-1).tolist(),
-        },
-        f"{prefix}.norm.gamma": {
-            "shape": [4],
-            "values": weights["norm.gamma"].tolist(),
-        },
-        f"{prefix}.norm.beta": {
-            "shape": [4],
-            "values": weights["norm.beta"].tolist(),
-        },
-        **block_payload,
+        f"{prefix}.patch_embed.projection.weight": tensor_payload(weights["patch_embed.projection.weight"]),
+        f"{prefix}.patch_embed.projection.bias": tensor_payload(weights["patch_embed.projection.bias"]),
+        f"{prefix}.norm.gamma": tensor_payload(weights["norm.gamma"]),
+        f"{prefix}.norm.beta": tensor_payload(weights["norm.beta"]),
     }
+
+    for layer_index in range(num_layers):
+        block, block_payload = make_block(
+            f"{prefix}.blocks.{layer_index}",
+            embed_dim,
+            mlp_dim,
+            base_offset + layer_index * 0.01,
+        )
+        weights["blocks"].append(block)
+        payload.update(block_payload)
+
     return weights, payload
 
 
-def make_predictor_weights() -> tuple[dict[str, np.ndarray], dict[str, dict[str, list[float] | list[int]]]]:
-    block_arrays, block_payload = make_block(
-        "predictor.blocks.0",
-        {
-            "norm1.gamma": ((4,), 1.0, 0.04),
-            "norm1.beta": ((4,), 0.01, -0.01),
-            "attn.qkv.weight": ((4, 12), -0.14, 0.008),
-            "attn.qkv.bias": ((12,), -0.02, 0.005),
-            "attn.out_proj.weight": ((4, 4), -0.06, 0.012),
-            "attn.out_proj.bias": ((4,), 0.03, -0.01),
-            "norm2.gamma": ((4,), 0.95, 0.03),
-            "norm2.beta": ((4,), -0.02, 0.01),
-            "mlp.fc1.weight": ((4, 16), -0.12, 0.005),
-            "mlp.fc1.bias": ((16,), -0.03, 0.004),
-            "mlp.fc2.weight": ((16, 4), -0.09, 0.004),
-            "mlp.fc2.bias": ((4,), 0.02, 0.01),
-        },
-    )
-
+def make_predictor_weights(
+    *,
+    encoder_embed_dim: int,
+    predictor_embed_dim: int,
+    num_layers: int,
+    base_offset: float,
+) -> tuple[dict[str, np.ndarray], dict[str, dict[str, list[float] | list[int]]]]:
+    predictor_mlp_dim = predictor_embed_dim * 4
     weights = {
-        "input_proj.weight": seq_values((4, 4), -0.11, 0.02),
-        "input_proj.bias": seq_values((4,), -0.03, 0.015),
-        "norm.gamma": np.asarray([0.98, 1.02, 0.96, 1.04], dtype=np.float32),
-        "norm.beta": np.asarray([-0.01, 0.02, -0.02, 0.01], dtype=np.float32),
-        "output_proj.weight": seq_values((4, 4), -0.09, 0.017),
-        "output_proj.bias": seq_values((4,), -0.02, 0.01),
-        "blocks.0": block_arrays,
+        "input_proj.weight": bounded_values(
+            (encoder_embed_dim, predictor_embed_dim), -0.1 + base_offset, 0.1 + base_offset
+        ),
+        "input_proj.bias": bounded_values(
+            (predictor_embed_dim,), -0.025 + base_offset, 0.025 + base_offset
+        ),
+        "norm.gamma": bounded_values(
+            (predictor_embed_dim,), 0.95 + base_offset, 1.05 + base_offset
+        ),
+        "norm.beta": bounded_values(
+            (predictor_embed_dim,), -0.02 + base_offset, 0.02 + base_offset
+        ),
+        "output_proj.weight": bounded_values(
+            (predictor_embed_dim, encoder_embed_dim), -0.09 + base_offset, 0.09 + base_offset
+        ),
+        "output_proj.bias": bounded_values(
+            (encoder_embed_dim,), -0.02 + base_offset, 0.02 + base_offset
+        ),
+        "blocks": [],
     }
 
     payload = {
-        "predictor.input_proj.weight": {
-            "shape": [4, 4],
-            "values": weights["input_proj.weight"].reshape(-1).tolist(),
-        },
-        "predictor.input_proj.bias": {
-            "shape": [4],
-            "values": weights["input_proj.bias"].tolist(),
-        },
-        "predictor.norm.gamma": {
-            "shape": [4],
-            "values": weights["norm.gamma"].tolist(),
-        },
-        "predictor.norm.beta": {
-            "shape": [4],
-            "values": weights["norm.beta"].tolist(),
-        },
-        "predictor.output_proj.weight": {
-            "shape": [4, 4],
-            "values": weights["output_proj.weight"].reshape(-1).tolist(),
-        },
-        "predictor.output_proj.bias": {
-            "shape": [4],
-            "values": weights["output_proj.bias"].tolist(),
-        },
-        **block_payload,
+        "predictor.input_proj.weight": tensor_payload(weights["input_proj.weight"]),
+        "predictor.input_proj.bias": tensor_payload(weights["input_proj.bias"]),
+        "predictor.norm.gamma": tensor_payload(weights["norm.gamma"]),
+        "predictor.norm.beta": tensor_payload(weights["norm.beta"]),
+        "predictor.output_proj.weight": tensor_payload(weights["output_proj.weight"]),
+        "predictor.output_proj.bias": tensor_payload(weights["output_proj.bias"]),
     }
+
+    for layer_index in range(num_layers):
+        block, block_payload = make_block(
+            f"predictor.blocks.{layer_index}",
+            predictor_embed_dim,
+            predictor_mlp_dim,
+            base_offset + layer_index * 0.0125,
+        )
+        weights["blocks"].append(block)
+        payload.update(block_payload)
+
     return weights, payload
 
 
-def encode_image(image: np.ndarray, encoder: dict[str, np.ndarray], visible_indices: list[int] | None) -> np.ndarray:
-    patches = patchify(image, patch_h=2, patch_w=2)
+def encode_image(
+    image: np.ndarray,
+    encoder: dict[str, np.ndarray],
+    encoder_config: dict[str, int | float | list[int]],
+    visible_indices: list[int] | None,
+) -> np.ndarray:
+    patch_h, patch_w = encoder_config["patch_size"]
+    grid_h = encoder_config["image_height"] // patch_h
+    grid_w = encoder_config["image_width"] // patch_w
+    patches = patchify(image, patch_h=patch_h, patch_w=patch_w)
     positioned = rope2d(
         linear(
             patches,
             encoder["patch_embed.projection.weight"],
             encoder["patch_embed.projection.bias"],
         ),
-        height=2,
-        width=2,
+        height=grid_h,
+        width=grid_w,
     )
     if visible_indices is not None:
         positioned = positioned[:, visible_indices, :]
-    x = transformer_block(positioned, encoder["blocks.0"], num_heads=2)
+    x = positioned
+    for block in encoder["blocks"]:
+        x = transformer_block(x, block, num_heads=encoder_config["num_heads"])
     return layer_norm(x, encoder["norm.gamma"], encoder["norm.beta"])
 
 
-def predict(context: np.ndarray, positions: np.ndarray, predictor: dict[str, np.ndarray]) -> np.ndarray:
+def predict(
+    context: np.ndarray,
+    positions: np.ndarray,
+    predictor: dict[str, np.ndarray],
+    predictor_config: dict[str, int | float],
+) -> np.ndarray:
     batch = context.shape[0]
-    pred_tokens = sinusoidal_prediction_tokens(4, 4)[positions]
-    pred_tokens = np.broadcast_to(pred_tokens[None, :, :], (batch, positions.shape[0], 4))
+    pred_tokens = sinusoidal_prediction_tokens(
+        predictor_config["max_target_len"],
+        predictor_config["predictor_embed_dim"],
+    )[positions]
+    pred_tokens = np.broadcast_to(
+        pred_tokens[None, :, :],
+        (batch, positions.shape[0], predictor_config["predictor_embed_dim"]),
+    )
     combined = np.concatenate(
         [
             linear(context, predictor["input_proj.weight"], predictor["input_proj.bias"]),
@@ -295,8 +346,10 @@ def predict(context: np.ndarray, positions: np.ndarray, predictor: dict[str, np.
         ],
         axis=1,
     )
-    combined = transformer_block(combined, predictor["blocks.0"], num_heads=2)
-    prediction_slice = combined[:, -positions.shape[0] :, :]
+    x = combined
+    for block in predictor["blocks"]:
+        x = transformer_block(x, block, num_heads=predictor_config["num_heads"])
+    prediction_slice = x[:, -positions.shape[0] :, :]
     prediction_slice = layer_norm(
         prediction_slice,
         predictor["norm.gamma"],
@@ -309,60 +362,154 @@ def predict(context: np.ndarray, positions: np.ndarray, predictor: dict[str, np.
     )
 
 
-def main() -> None:
-    encoder_config = {
-        "in_channels": 1,
-        "image_height": 4,
-        "image_width": 4,
-        "patch_size": [2, 2],
-        "embed_dim": 4,
-        "num_layers": 1,
-        "num_heads": 2,
-        "mlp_dim": 8,
-        "dropout": 0.0,
-    }
-    predictor_config = {
-        "encoder_embed_dim": 4,
-        "predictor_embed_dim": 4,
-        "num_layers": 1,
-        "num_heads": 2,
-        "max_target_len": 4,
-    }
+FIXTURE_CASES = [
+    {
+        "filename": "ijepa_strict_tiny_fixture.json",
+        "name": "ijepa-strict-image-tiny-v2",
+        "reference_note": "Tiny strict image-path parity fixture covering a 2x2 patch grid and single-layer encoder/predictor stack.",
+        "abs_tolerance": 1e-5,
+        "rel_tolerance": 1e-5,
+        "encoder": {
+            "in_channels": 1,
+            "image_height": 4,
+            "image_width": 4,
+            "patch_size": [2, 2],
+            "embed_dim": 4,
+            "num_layers": 1,
+            "num_heads": 2,
+            "mlp_dim": 8,
+            "dropout": 0.0,
+        },
+        "predictor": {
+            "encoder_embed_dim": 4,
+            "predictor_embed_dim": 4,
+            "num_layers": 1,
+            "num_heads": 2,
+            "max_target_len": 4,
+        },
+        "image": structured_image(1, 4, 4, 0.1, 1.6),
+        "mask": {"context_indices": [0, 3], "target_indices": [1, 2], "total_tokens": 4},
+        "context_base_offset": -0.02,
+        "target_base_offset": 0.02,
+        "predictor_base_offset": -0.01,
+    },
+    {
+        "filename": "ijepa_strict_rect_fixture.json",
+        "name": "ijepa-strict-image-rect-v1",
+        "reference_note": "Strict image-path parity fixture covering a non-square 3x4 patch grid with a two-layer encoder and two-layer predictor.",
+        "abs_tolerance": 2e-5,
+        "rel_tolerance": 2e-5,
+        "encoder": {
+            "in_channels": 1,
+            "image_height": 6,
+            "image_width": 8,
+            "patch_size": [2, 2],
+            "embed_dim": 8,
+            "num_layers": 2,
+            "num_heads": 2,
+            "mlp_dim": 16,
+            "dropout": 0.0,
+        },
+        "predictor": {
+            "encoder_embed_dim": 8,
+            "predictor_embed_dim": 8,
+            "num_layers": 2,
+            "num_heads": 2,
+            "max_target_len": 12,
+        },
+        "image": structured_image(1, 6, 8, -0.35, 1.45),
+        "mask": {
+            "context_indices": [0, 1, 3, 4, 7, 9, 11],
+            "target_indices": [2, 5, 6, 8, 10],
+            "total_tokens": 12,
+        },
+        "context_base_offset": -0.015,
+        "target_base_offset": 0.025,
+        "predictor_base_offset": 0.005,
+    },
+    {
+        "filename": "ijepa_strict_rgb_patch24_fixture.json",
+        "name": "ijepa-strict-image-rgb-patch24-v1",
+        "reference_note": "Strict image-path parity fixture covering RGB input, asymmetric 2x4 patches, and a predictor that projects from 8 encoder dims into 12 predictor dims.",
+        "abs_tolerance": 2e-5,
+        "rel_tolerance": 2e-5,
+        "encoder": {
+            "in_channels": 3,
+            "image_height": 8,
+            "image_width": 8,
+            "patch_size": [2, 4],
+            "embed_dim": 8,
+            "num_layers": 1,
+            "num_heads": 2,
+            "mlp_dim": 24,
+            "dropout": 0.0,
+        },
+        "predictor": {
+            "encoder_embed_dim": 8,
+            "predictor_embed_dim": 12,
+            "num_layers": 1,
+            "num_heads": 3,
+            "max_target_len": 8,
+        },
+        "image": structured_image(3, 8, 8, -0.6, 1.2),
+        "mask": {
+            "context_indices": [0, 2, 3, 5, 6],
+            "target_indices": [1, 4, 7],
+            "total_tokens": 8,
+        },
+        "context_base_offset": -0.01,
+        "target_base_offset": 0.03,
+        "predictor_base_offset": -0.005,
+    },
+]
 
-    context_encoder, context_payload = make_encoder_weights("context_encoder")
-    target_encoder, target_payload = make_encoder_weights("target_encoder")
-    predictor_weights, predictor_payload = make_predictor_weights()
 
-    image = np.asarray(
-        [
-            [
-                [
-                    [0.1, 0.2, 0.3, 0.4],
-                    [0.5, 0.6, 0.7, 0.8],
-                    [0.9, 1.0, 1.1, 1.2],
-                    [1.3, 1.4, 1.5, 1.6],
-                ]
-            ]
-        ],
-        dtype=np.float32,
+def build_fixture(case: dict[str, object]) -> dict[str, object]:
+    encoder_config = case["encoder"]
+    predictor_config = case["predictor"]
+    image = case["image"]
+    mask = case["mask"]
+
+    context_encoder, context_payload = make_encoder_weights(
+        "context_encoder",
+        in_channels=encoder_config["in_channels"],
+        patch_size=tuple(encoder_config["patch_size"]),
+        embed_dim=encoder_config["embed_dim"],
+        mlp_dim=encoder_config["mlp_dim"],
+        num_layers=encoder_config["num_layers"],
+        base_offset=case["context_base_offset"],
     )
-    mask = {"context_indices": [0, 3], "target_indices": [1, 2], "total_tokens": 4}
-    target_positions = np.asarray(mask["target_indices"], dtype=np.int64)
+    target_encoder, target_payload = make_encoder_weights(
+        "target_encoder",
+        in_channels=encoder_config["in_channels"],
+        patch_size=tuple(encoder_config["patch_size"]),
+        embed_dim=encoder_config["embed_dim"],
+        mlp_dim=encoder_config["mlp_dim"],
+        num_layers=encoder_config["num_layers"],
+        base_offset=case["target_base_offset"],
+    )
+    predictor_weights, predictor_payload = make_predictor_weights(
+        encoder_embed_dim=predictor_config["encoder_embed_dim"],
+        predictor_embed_dim=predictor_config["predictor_embed_dim"],
+        num_layers=predictor_config["num_layers"],
+        base_offset=case["predictor_base_offset"],
+    )
 
-    context = encode_image(image, context_encoder, mask["context_indices"])
-    target_full = encode_image(image, target_encoder, None)
+    target_positions = np.asarray(mask["target_indices"], dtype=np.int64)
+    context = encode_image(image, context_encoder, encoder_config, mask["context_indices"])
+    target_full = encode_image(image, target_encoder, encoder_config, None)
     target = target_full[:, mask["target_indices"], :]
-    predicted = predict(context, target_positions, predictor_weights)
+    predicted = predict(context, target_positions, predictor_weights, predictor_config)
     energy = np.mean((predicted - target) ** 2, axis=(0, 1, 2), keepdims=False).astype(np.float32)
 
-    fixture = {
+    return {
         "metadata": {
-            "name": "ijepa-strict-image-tiny-v1",
+            "name": case["name"],
             "generator": "specs/differential/export_ijepa_strict_fixture.py",
             "reference_repo": "facebookresearch/ijepa",
-            "reference_note": "Exports a tiny strict image-path parity fixture using the same flattened token and masked-gather semantics as the canonical Python I-JEPA stack.",
-            "abs_tolerance": 1e-5,
-            "rel_tolerance": 1e-5,
+            "reference_note": case["reference_note"],
+            "abs_tolerance": case["abs_tolerance"],
+            "rel_tolerance": case["rel_tolerance"],
         },
         "config": {
             "encoder": encoder_config,
@@ -373,28 +520,22 @@ def main() -> None:
             **target_payload,
             **predictor_payload,
         },
-        "raw_input": {
-            "shape": [1, 1, 4, 4],
-            "values": image.reshape(-1).tolist(),
-        },
+        "raw_input": tensor_payload(image),
         "mask": mask,
         "target_positions": target_positions.tolist(),
-        "context": {
-            "shape": list(context.shape),
-            "values": context.reshape(-1).tolist(),
-        },
-        "target": {
-            "shape": list(target.shape),
-            "values": target.reshape(-1).tolist(),
-        },
-        "predicted": {
-            "shape": list(predicted.shape),
-            "values": predicted.reshape(-1).tolist(),
-        },
+        "context": tensor_payload(context),
+        "target": tensor_payload(target),
+        "predicted": tensor_payload(predicted),
         "energy": [float(energy)],
     }
 
-    OUTPUT_PATH.write_text(json.dumps(fixture, indent=2) + "\n", encoding="utf-8")
+
+def main() -> None:
+    for case in FIXTURE_CASES:
+        fixture_path = OUTPUT_DIR / case["filename"]
+        fixture = build_fixture(case)
+        fixture_path.write_text(json.dumps(fixture, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote {fixture_path}")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
-//! ONNX model import for JEPA models.
+//! ONNX model inspection and initializer import for JEPA models.
 //!
 //! Provides metadata inspection and initializer loading for ONNX checkpoints
 //! using the `tract-onnx` parser stack.
+//! It does not execute ONNX graphs or provide a general ONNX runtime.
 //!
 //! ## Usage
 //!
@@ -106,7 +107,7 @@ pub enum OnnxError {
     /// Tensor dtype is not currently supported for loading.
     #[error("unsupported ONNX tensor dtype for '{name}': {dtype:?}")]
     UnsupportedDtype { name: String, dtype: OnnxDtype },
-    /// Reserved for builds that disable the ONNX parser/runtime surface.
+    /// Reserved for future builds that may gate an ONNX runtime surface.
     #[error("ONNX runtime not available")]
     RuntimeNotAvailable,
 }

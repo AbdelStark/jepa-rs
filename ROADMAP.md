@@ -24,9 +24,9 @@ As of March 12, 2026:
 
 - M0 is complete.
 - M1 is complete: strict image and video masked paths landed with no-leakage regression coverage.
-- M2 is complete for the first reference path: the repo now runs fixture-backed strict I-JEPA parity in CI and exposes fallible alternatives for high-risk caller misuse.
-- M3 is substantially complete for the current scope: coverage, fuzz, benchmark smoke, parity, and package smoke are part of the enforced verification surface; ONNX remains intentionally scoped to metadata inspection and initializer loading.
-- M4 is in progress: local release-candidate hardening is complete, but the first external crates.io release still needs to be exercised.
+- M2 is complete for the bundled strict image fixture set: the repo now runs three fixture-backed strict I-JEPA parity cases in CI and exposes fallible alternatives for high-risk caller misuse.
+- M3 is substantially complete for the current scope: coverage, fuzz, benchmark smoke, parity, package smoke, and release-policy benchmark budgets are part of the enforced verification surface; ONNX remains intentionally scoped to metadata inspection and initializer loading.
+- M4 is in progress: the first dependency-order release-candidate rehearsal is complete locally, but the first external crates.io release still needs approval and execution.
 - M5 remains open.
 
 ## Milestones
@@ -35,8 +35,8 @@ As of March 12, 2026:
 |-----------|---------|----------|---------------|---------------------|
 | M0 | Planning baseline | gap register, roadmap, work packages, architecture notes | Planning docs committed and linked from repo entry points | S |
 | M1 | Semantic correctness foundation | strict masked image path, strict masked video path, no-leakage tests, trainer contract clarification | Hidden targets cannot influence context encoding in verified image and video paths | XL |
-| M2 | Reference validation foundation | fixture-backed differential tests against Python reference, tighter invariants, fallible runtime APIs where needed | CI proves parity for at least one strict image JEPA path and key runtime APIs are safer | L |
-| M3 | Quality hardening and scoped interop | fuzzing, benchmark smoke, coverage policy, package smoke, ONNX metadata and initializer loading | Quality gates are materially stronger and ONNX scope is documented precisely | XL |
+| M2 | Reference validation foundation | fixture-backed differential tests against Python reference, tighter invariants, fallible runtime APIs where needed | CI proves parity for the bundled strict image fixture set and key runtime APIs are safer | L |
+| M3 | Quality hardening and scoped interop | fuzzing, benchmark smoke, coverage policy, package smoke, ONNX metadata and initializer loading | Quality gates are materially stronger, performance budgets are documented, and ONNX scope is documented precisely | XL |
 | M4 | Release candidate | crates.io readiness, package docs, changelog discipline, compatibility policy, examples | Local package smoke passes and public-facing docs support day-one external use | M |
 | M5 | Production-grade 1.0 | broader parity coverage, exercised release process, maintained support expectations, any approved interop expansion | Remaining P0 and P1 gaps are closed and the release process has been exercised end to end | L |
 
@@ -61,7 +61,7 @@ Everything else is downstream of semantic correctness. Differential tests and in
 
 ### Phase 2: Prove Numerical Behavior
 
-Status: complete for one strict image flow
+Status: complete for the bundled strict image fixture set
 
 Do this immediately after Phase 1.
 
@@ -111,11 +111,11 @@ Interop and publishing should not outpace correctness and verification. For the 
 
 These are the next concrete steps to execute in order:
 
-1. Broaden parity coverage beyond the bundled tiny strict image fixture so regressions are tested across more shapes and masking layouts.
-2. Exercise the first real release candidate flow in dependency order, including changelog and publish dry-runs.
-3. Decide whether production-grade scope requires ONNX runtime execution or whether the documented adapter boundary remains acceptable.
-4. Tighten operational guidance for external users, especially release support expectations and debugging runbooks.
-5. Revisit performance baselines once the first public release shape is fixed.
+1. Publish the first crates.io release only after maintainers approve the rehearsed dependency-order flow.
+2. Decide whether production-grade scope requires strict video parity before `1.0`.
+3. Keep the ONNX adapter boundary explicit unless maintainers approve runtime expansion.
+4. Maintain the external runbooks and benchmark budgets as the release surface changes.
+5. Revisit wider performance work only after the first public release shape is fixed.
 
 ## Suggested Sprint Structure
 

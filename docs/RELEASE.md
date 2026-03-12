@@ -4,6 +4,16 @@
 
 A release is publishable only when the workspace matches the real verification
 surface described in [`docs/QUALITY_GATES.md`](./QUALITY_GATES.md).
+Operational troubleshooting lives in [`docs/OPERATIONS.md`](./OPERATIONS.md),
+benchmark-budget policy lives in [`docs/PERFORMANCE.md`](./PERFORMANCE.md), and
+the current release-candidate draft notes live in
+[`docs/releases/0.1.0-rc-rehearsal.md`](./releases/0.1.0-rc-rehearsal.md).
+
+## Rehearsal Status
+
+As of March 12, 2026, the dependency-order `cargo package` rehearsal succeeds
+locally for all five crates. This is a dry-run readiness signal, not a publish
+event.
 
 ## Pre-Release Checklist
 
@@ -35,6 +45,7 @@ Notes:
 - Downstream workspace dependencies now carry explicit version requirements for publishable manifests.
 - `--exclude-lockfile` is intentional for the downstream crates while the workspace is still unpublished on crates.io. Without it, Cargo attempts to resolve `jepa-core` from the registry when generating a lockfile for the packaged crate.
 - After publishing `jepa-core`, maintainers may rerun downstream `cargo package` or `cargo publish --dry-run` commands without `--exclude-lockfile` if they want to confirm registry resolution before publishing the remaining crates.
+- For a local rehearsal on an in-progress branch, `--allow-dirty` is acceptable. The actual tagged release path should run from a clean checkout.
 
 ## Versioning Policy
 
@@ -61,13 +72,28 @@ Publish in dependency order:
   down for the released version.
 - A release is not called production-grade unless the P0 and P1 gaps in
   `PRODUCTION_GAP.md` are closed.
+- For the first release candidate, the ONNX boundary is metadata inspection and initializer loading only. Full ONNX runtime execution is a no-go unless maintainers approve new scope and dependencies first.
 
 ## Release Steps
 
 1. Update version numbers and changelog entries.
 2. Run the full verification surface locally, including `scripts/run_parity_suite.sh`.
 3. Run the publishability checks in dependency order.
-4. Tag the release candidate in git.
-5. Publish crates in dependency order.
-6. Rebuild docs and verify docs.rs metadata.
-7. Announce the release with status, scope, and known limitations.
+4. Prepare release notes from [`docs/releases/0.1.0-rc-rehearsal.md`](./releases/0.1.0-rc-rehearsal.md) and confirm the known-limitations section still matches the code.
+5. Tag the release candidate in git.
+6. Publish crates in dependency order.
+7. Rebuild docs and verify docs.rs metadata.
+8. Announce the release with status, scope, and known limitations.
+
+## Rollback And Partial Publish
+
+Crates.io releases are effectively append-only. If a publish attempt fails
+mid-sequence:
+
+1. Stop the publish sequence immediately.
+2. Record exactly which crate versions were published and which were not.
+3. If a published crate is unusable or points at a broken dependency chain, yank that version on crates.io.
+4. Fix the issue in git, cut a new candidate version, and rerun the verification and packaging flow from the start.
+5. Update the release notes and changelog so downstream users can see what happened.
+
+Never reuse a version number after any part of it has been published publicly.

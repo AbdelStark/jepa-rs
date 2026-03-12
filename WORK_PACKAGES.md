@@ -87,7 +87,7 @@ Status: complete
 
 ## WP-004: Differential Parity Harness
 
-Status: complete for the first strict image fixture, with broader fixture coverage still remaining
+Status: complete for the bundled strict image fixture set, with strict video parity still remaining
 
 **Objective**: Prove that key image-path behavior matches a Python reference implementation closely enough to trust refactors.
 
@@ -179,7 +179,7 @@ Status: deferred pending explicit scope and dependency approval
 
 ## WP-008: Release Candidate Hardening
 
-Status: complete for local release-candidate hardening; first external publish exercise still pending
+Status: complete for local release-candidate rehearsal; actual external publish still pending
 
 **Objective**: Prepare the workspace for external publication and long-lived maintenance.
 
@@ -201,7 +201,7 @@ Status: complete for local release-candidate hardening; first external publish e
 
 ## Current Recommended Start Order
 
-1. Expand WP-004 with additional canonical parity fixtures and, if approved later, strict video parity.
-2. Exercise the first real release candidate flow using WP-008 in dependency order.
-3. Close the remaining contributor and operator guidance gaps alongside the release rehearsal.
+1. Publish the first crates.io release only after maintainers explicitly approve the rehearsed dependency-order flow.
+2. Expand differential coverage further only if maintainers decide strict video parity is required before `1.0`.
+3. Keep the benchmark budgets and operator runbooks current as the release surface changes.
 4. Execute WP-007 only if ONNX runtime expansion is explicitly approved.

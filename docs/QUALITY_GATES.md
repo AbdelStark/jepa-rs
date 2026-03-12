@@ -55,6 +55,8 @@ Targets:
 ## Benchmarks
 
 Criterion benchmarks are checked in under the crate `benches/` directories.
+Maintained benchmark budgets and the capture workflow live in
+[`docs/PERFORMANCE.md`](./PERFORMANCE.md).
 
 Smoke command:
 
@@ -66,6 +68,7 @@ Baseline workflow:
 
 ```bash
 cargo bench -p jepa-core --bench core_bench -- --save-baseline main
+cargo bench -p jepa-vision --bench vision_bench -- --save-baseline main
 cargo bench -p jepa-train --bench train_bench -- --save-baseline main
 cargo bench -p jepa-world --bench world_bench -- --save-baseline main
 ```
@@ -73,7 +76,8 @@ cargo bench -p jepa-world --bench world_bench -- --save-baseline main
 Review policy:
 
 - Benchmark-affecting PRs should mention expected hot-path impact.
-- Regressions larger than 5% on maintained baselines need an explanation.
+- Maintained release budgets currently cover masking, strict image forward, trainer orchestration, and world planning hot paths.
+- Regressions above the thresholds in [`docs/PERFORMANCE.md`](./PERFORMANCE.md) need an explanation before release.
 - Correctness wins over speed, but unexplained slowdowns do not ship silently.
 
 ## Differential Parity
@@ -87,18 +91,24 @@ Primary command:
 scripts/run_parity_suite.sh
 ```
 
-Override the bundled fixture when you want to validate a different export:
+Override the bundled fixture set when you want to validate a different export:
 
 ```bash
 scripts/run_parity_suite.sh /path/to/ijepa-reference-fixture.json
 ```
 
+Or point the runner at a directory of fixtures:
+
+```bash
+scripts/run_parity_suite.sh /path/to/fixture-directory
+```
+
 Current policy:
 
-- CI runs `scripts/run_parity_suite.sh` against the checked-in strict image fixture at [`specs/differential/ijepa_strict_tiny_fixture.json`](../specs/differential/ijepa_strict_tiny_fixture.json).
+- CI runs `scripts/run_parity_suite.sh` against every checked-in fixture in [`specs/differential/`](../specs/differential/).
 - The parity command requires `python3` to decode the exported JSON fixture into the Rust-side comparator.
-- The bundled fixture compares strict I-JEPA context, target, predicted, and energy outputs with `abs_tolerance=1e-5` and `rel_tolerance=1e-5`.
-- Larger or additional reference fixtures remain optional until maintainers provision them explicitly.
+- Bundled per-fixture tolerances are documented in [`specs/differential/README.md`](../specs/differential/README.md).
+- The current checked-in suite covers three strict I-JEPA image flows; strict video parity remains out of scope for this release candidate.
 
 ## Package Smoke
 
@@ -117,3 +127,4 @@ Policy:
 - CI runs the package smoke commands above on every change.
 - `--exclude-lockfile` is required for downstream unpublished workspace crates so Cargo does not try to resolve internal crate versions from crates.io before the staged publish happens.
 - Once the crates are published, maintainers may optionally rerun downstream packaging without `--exclude-lockfile` as an extra registry-resolution check.
+- Troubleshooting for package smoke failures lives in [`docs/OPERATIONS.md`](./OPERATIONS.md).

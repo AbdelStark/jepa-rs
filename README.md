@@ -14,14 +14,14 @@ This repository is for Rust developers who want to experiment with JEPA-style mo
 
 ## Status
 
-As of March 12, 2026, this project is **alpha with local release-candidate hardening complete**.
+As of March 12, 2026, this project is **alpha with local release-candidate rehearsal complete**.
 
 It is suitable for local research, API exploration, and extending JEPA components inside Rust codebases. It is not yet production-grade.
 
 Known limitations:
 
 - The generic trainer in [`crates/jepa-train/src/trainer.rs`](./crates/jepa-train/src/trainer.rs) still slices context and target tokens after encoder forward. Strict pre-attention masking is available through [`IJepa::forward_step_strict`](./crates/jepa-vision/src/image.rs) and [`VJepa::forward_step_strict`](./crates/jepa-vision/src/video.rs).
-- Differential parity now runs in CI against a checked-in strict image fixture, but broader fixture coverage against additional Python exports is still pending.
+- Differential parity now runs in CI against three checked-in strict image fixtures. Broader modality coverage, especially strict video parity, is still pending.
 - ONNX support covers model metadata and initializer loading, not full runtime execution.
 - Workspace crates are not published to crates.io yet. Local package smoke checks pass, but consumers still depend on the git workspace until the first crates.io release lands.
 
@@ -36,7 +36,7 @@ jepa-compat   safetensors loading, key remapping, ONNX API surface
 ```
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for design notes and invariants, [PRODUCTION_GAP.md](./PRODUCTION_GAP.md) for the current blocker register, [ROADMAP.md](./ROADMAP.md) for milestone sequencing, and [WORK_PACKAGES.md](./WORK_PACKAGES.md) for implementation-sized tasks.
-Operational guidance for verification and release lives in [docs/QUALITY_GATES.md](./docs/QUALITY_GATES.md) and [docs/RELEASE.md](./docs/RELEASE.md).
+Operational guidance for verification and release lives in [docs/QUALITY_GATES.md](./docs/QUALITY_GATES.md), [docs/RELEASE.md](./docs/RELEASE.md), [docs/OPERATIONS.md](./docs/OPERATIONS.md), and [docs/PERFORMANCE.md](./docs/PERFORMANCE.md).
 
 ## Quick Start
 
@@ -85,6 +85,8 @@ cargo doc --workspace --no-deps
 scripts/run_parity_suite.sh
 ```
 
+`scripts/run_parity_suite.sh` runs every checked-in fixture in [`specs/differential`](./specs/differential) by default.
+
 Extended quality gates:
 
 ```bash
@@ -99,6 +101,13 @@ Target a single crate when iterating:
 cargo test -p jepa-core
 cargo test -p jepa-vision
 ```
+
+## Support Boundary
+
+- Strict image and video helpers are the semantic reference paths for masked JEPA training behavior.
+- The generic trainer is reusable orchestration, not a faithful masked-encoder reference implementation.
+- ONNX support stops at metadata inspection and initializer loading. Executing ONNX graphs is out of scope unless maintainers approve a separate expansion.
+- Release and troubleshooting runbooks are documented for external users in [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) and [`docs/RELEASE.md`](./docs/RELEASE.md).
 
 
 ## Important JEPA Resources
