@@ -14,7 +14,7 @@ All 10 RFCs from SPECIFICATION.md are implemented across the workspace.
 | Weights I/O | safetensors  | 0.4      | PyTorch/HuggingFace checkpoint loading   |
 | Errors      | thiserror    | 2        | Derive macro for error enums             |
 | Testing     | proptest     | 1        | Property-based testing                   |
-| Benchmarks  | criterion    | 0.5      | Populated: core_bench.rs + vision_bench.rs |
+| Benchmarks  | criterion    | 0.5      | All crates: core, vision, train, world     |
 | RNG         | rand + chacha| 0.8/0.3  | Deterministic seeded RNG                 |
 
 </stack>
@@ -197,13 +197,19 @@ SPECIFICATION.md          # RFC archive (10 RFCs, 1105 lines) — the implementa
 </troubleshooting>
 
 <skills>
-Modular skills in .codex/skills/ (symlinked at .claude/skills/ and .agents/skills/):
+Modular skills in .codex/skills/:
 — _index.md: Skill registry and gap analysis
 — implementing-rfcs.md: Step-by-step guide for turning SPECIFICATION.md RFCs into code
 — testing.md: Test strategy across 4 layers (unit, BDD, differential, fuzz)
 — burn-backend.md: Working with the burn ML framework in this project
 — debugging.md: Diagnosing build failures, test failures, and numerical issues
 </skills>
+
+<ci>
+  GitHub Actions CI (.github/workflows/ci.yml) runs on push/PR to main:
+  — cargo check, cargo test, cargo clippy, cargo fmt --check, cargo doc
+  All checks must pass before merge.
+</ci>
 
 <memory>
 <project_decisions>

@@ -3,6 +3,8 @@ name = "jepa-vision"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+authors.workspace = true
 description = "Vision-specific JEPA implementations (ViT encoder, patch embedding, I-JEPA)"
 
 [dependencies]
