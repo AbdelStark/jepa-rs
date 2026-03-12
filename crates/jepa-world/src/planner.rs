@@ -109,9 +109,10 @@ impl<B: Backend, D: ActionConditionedPredictor<B>, C: CostFunction<B>> WorldMode
         states.push(initial_state.clone());
 
         for action in actions {
+            // Safety: states is non-empty — we pushed initial_state above and push each iteration
             let next = self
                 .dynamics
-                .predict_next_state(states.last().unwrap(), action);
+                .predict_next_state(states.last().expect("states is non-empty"), action);
             states.push(next);
         }
 
