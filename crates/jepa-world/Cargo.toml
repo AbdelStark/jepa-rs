@@ -3,7 +3,12 @@ name = "jepa-world"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Action-conditioned world model and hierarchical JEPA (H-JEPA)"
 
 [dependencies]
 jepa-core = { path = "../jepa-core" }
 burn = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+burn-ndarray = { workspace = true }
