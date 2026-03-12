@@ -13,7 +13,9 @@
 pub mod checkpoint;
 pub mod schedule;
 pub mod step;
+pub mod trainer;
 
 pub use checkpoint::CheckpointMeta;
 pub use schedule::{ConstantSchedule, LrSchedule, WarmupCosineSchedule};
 pub use step::{TrainConfig, TrainMetrics, TrainStepOutput};
+pub use trainer::{schedule_values, JepaComponents, JepaForwardOutput, StepReport};
