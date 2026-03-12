@@ -2,7 +2,7 @@
 
 **Production-grade Rust implementation of the Joint Embedding Predictive Architecture (JEPA).**
 
-[![License](https://img.shields.io/badge/license-Apache--2.0%2FMIT-blue)](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](#license)
 
 [Specification](./SPECIFICATION.md) | [BDD Features](./specs/gherkin/features.feature) | [Changelog](./CHANGELOG.md)
 
@@ -76,7 +76,7 @@ fn main() {
 }
 ```
 
-See [`crates/jepa-vision/examples/`](./crates/jepa-vision/examples/) for complete I-JEPA training loop examples.
+See the [vision examples](./crates/jepa-vision/examples/) and [world model example](./crates/jepa-world/examples/) for more.
 
 ## Status
 
@@ -84,12 +84,12 @@ See [`crates/jepa-vision/examples/`](./crates/jepa-vision/examples/) for complet
 
 | Component | Status | Tests |
 |-----------|--------|-------|
-| Core traits & types | Complete | 93 unit + property tests |
-| Vision (ViT, I-JEPA, V-JEPA) | Complete | 38 unit + property + BDD tests |
-| World model & planning | Complete | 23 unit + property tests |
-| Training loop | Complete | 21 unit + property tests |
-| PyTorch compat (safetensors) | Complete | 31 unit + property tests |
-| ONNX runtime | API-complete (stub) | 8 tests |
+| Core traits & types | Complete | 98 unit + property tests |
+| Vision (ViT, I-JEPA, V-JEPA) | Complete | 49 unit + property + integration tests |
+| World model & planning | Complete | 29 unit + property tests |
+| Training loop | Complete | 13 unit + property tests |
+| PyTorch compat (safetensors) | Complete | 39 unit + property tests |
+| ONNX runtime | API-complete (stub) | Included above |
 
 ### Remaining work for v0.1.0
 
@@ -103,7 +103,7 @@ See [`crates/jepa-vision/examples/`](./crates/jepa-vision/examples/) for complet
 # Build
 cargo build
 
-# Run all tests (245 unit/integration + 16 doc tests)
+# Run all tests (267 unit/integration + 23 doc tests)
 cargo test
 
 # Run tests for a specific crate
@@ -133,7 +133,7 @@ Differential tests are designed to run against these Python codebases:
 
 ## License
 
-Dual-licensed under [Apache-2.0](./LICENSE-APACHE) or [MIT](./LICENSE-MIT) at your option.
+Licensed under the [MIT License](./LICENSE).
 
 ## Author
 

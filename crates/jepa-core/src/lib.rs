@@ -24,11 +24,21 @@ pub mod masking;
 pub mod predictor;
 pub mod types;
 
-pub use collapse::{BarlowTwins, CollapseRegularizer};
-pub use config::{JepaConfig, JepaConfigBuilder};
-pub use ema::Ema;
+// Core types
+pub use types::{Energy, InputShape, MaskError, MaskSpec, Representation};
+
+// Traits
+pub use collapse::CollapseRegularizer;
 pub use encoder::Encoder;
 pub use energy::EnergyFn;
 pub use masking::MaskingStrategy;
 pub use predictor::Predictor;
-pub use types::{Energy, MaskSpec, Representation};
+
+// Config
+pub use config::{ConfigError, JepaConfig, JepaConfigBuilder};
+
+// Concrete implementations
+pub use collapse::{BarlowTwins, VICReg};
+pub use ema::{CosineMomentumSchedule, Ema};
+pub use energy::{CosineEnergy, L2Energy, SmoothL1Energy};
+pub use masking::{BlockMasking, MultiBlockMasking, SpatiotemporalMasking};

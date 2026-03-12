@@ -1,6 +1,6 @@
 <identity>
 jepa-rs: Production-grade Rust implementation of JEPA (Joint Embedding Predictive Architecture) for self-supervised learning.
-All 5 workspace crates are fully implemented with 245 unit/integration tests + 16 doc tests passing.
+All 5 workspace crates are fully implemented with 267 unit/integration tests + 23 doc tests passing.
 All 10 RFCs from SPECIFICATION.md are implemented across the workspace.
 </identity>
 
@@ -70,7 +70,7 @@ SPECIFICATION.md          # RFC archive (10 RFCs, 1105 lines) — the implementa
 |-----------------|-----------------------------------|---------------------------------------------|
 | Build           | `cargo build`                     | Succeeds — all workspace crates compile     |
 | Build (release) | `cargo build --release`           | Succeeds                                    |
-| Test            | `cargo test`                      | 245 unit/integration + 16 doc tests pass    |
+| Test            | `cargo test`                      | 267 unit/integration + 23 doc tests pass    |
 | Test (single)   | `cargo test -p jepa-core`         | Target specific crate                       |
 | Test (named)    | `cargo test -p jepa-core -- [name]` | Run a single test by name                 |
 | Test (verbose)  | `cargo test -p jepa-core -- --nocapture` | Show println output                  |
