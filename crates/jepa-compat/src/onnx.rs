@@ -141,7 +141,14 @@ impl OnnxModelInfo {
     ///
     /// This is a placeholder that returns an error until the ONNX runtime
     /// dependency is added.
-    pub fn from_file(_path: impl AsRef<Path>) -> Result<Self, OnnxError> {
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, OnnxError> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Err(OnnxError::FileNotFound {
+                path: path.display().to_string(),
+            });
+        }
+
         Err(OnnxError::RuntimeNotAvailable)
     }
 }
@@ -151,9 +158,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_onnx_error_is_returned_without_runtime() {
+    fn test_missing_onnx_file_returns_file_not_found() {
         let result = OnnxModelInfo::from_file("nonexistent.onnx");
+        assert!(matches!(result, Err(OnnxError::FileNotFound { .. })));
+    }
+
+    #[test]
+    fn test_existing_onnx_file_returns_runtime_not_available() {
+        let path = std::env::temp_dir().join(format!("jepa-rs-test-{}.onnx", std::process::id()));
+        std::fs::write(&path, b"fake-onnx-model").expect("temp file should be writable");
+
+        let result = OnnxModelInfo::from_file(&path);
         assert!(matches!(result, Err(OnnxError::RuntimeNotAvailable)));
+
+        std::fs::remove_file(path).expect("temp file should be removable");
     }
 
     #[test]

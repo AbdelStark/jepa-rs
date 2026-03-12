@@ -13,6 +13,7 @@
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;
 use burn::tensor::backend::Backend;
+use burn::tensor::module::embedding;
 
 use jepa_core::types::Representation;
 use jepa_core::Predictor;
@@ -55,7 +56,10 @@ pub struct TransformerPredictorConfig {
     pub num_layers: usize,
     /// Number of attention heads in the predictor.
     pub num_heads: usize,
-    /// Maximum number of target positions to predict.
+    /// Maximum flattened token position supported by the predictor.
+    ///
+    /// Set this to the encoder token count, not just the number of masked
+    /// targets in a single training step.
     pub max_target_len: usize,
 }
 
@@ -79,9 +83,8 @@ impl TransformerPredictorConfig {
 
         let norm = LayerNormConfig::new(self.predictor_embed_dim).init(device);
 
-        // Learnable prediction tokens (initialized to zeros, will be learned)
         let prediction_tokens =
-            Tensor::zeros([self.max_target_len, self.predictor_embed_dim], device);
+            sinusoidal_prediction_tokens(self.max_target_len, self.predictor_embed_dim, device);
 
         TransformerPredictor {
             input_proj,
@@ -98,14 +101,16 @@ impl TransformerPredictorConfig {
 /// Transformer-based predictor for I-JEPA.
 ///
 /// Predicts target representations from context representations using
-/// cross-attention from learnable prediction tokens to the context.
+/// attention over concatenated context tokens and position-conditioned
+/// prediction tokens.
 ///
 /// Architecture:
 /// 1. Project context to predictor dimension
-/// 2. Concatenate prediction tokens (one per target position) with context
-/// 3. Apply self-attention transformer blocks
-/// 4. Extract prediction token outputs
-/// 5. Project back to encoder dimension
+/// 2. Build position-conditioned prediction tokens for the requested targets
+/// 3. Concatenate prediction tokens with context
+/// 4. Apply self-attention transformer blocks
+/// 5. Extract prediction token outputs
+/// 6. Project back to encoder dimension
 #[derive(Module, Debug)]
 pub struct TransformerPredictor<B: Backend> {
     /// Project encoder output to predictor dimension.
@@ -116,7 +121,7 @@ pub struct TransformerPredictor<B: Backend> {
     blocks: Vec<PredictorBlock<B>>,
     /// Final layer norm.
     norm: LayerNorm<B>,
-    /// Learnable prediction tokens. Shape: `[max_targets, predictor_embed_dim]`
+    /// Position-conditioned prediction token table. Shape: `[max_position, predictor_embed_dim]`
     prediction_tokens: Tensor<B, 2>,
     /// Predictor embedding dimension.
     predictor_embed_dim: usize,
@@ -133,18 +138,20 @@ impl<B: Backend> Predictor<B> for TransformerPredictor<B> {
     ) -> Representation<B> {
         let [batch, _ctx_len, _enc_dim] = context.embeddings.dims();
         let [_batch, num_targets] = target_positions.dims();
+        let target_positions = target_positions.clone().int();
+        let max_position: i64 = target_positions.clone().max().into_scalar().elem();
+        let max_supported_position = self.prediction_tokens.dims()[0] as i64;
+        assert!(
+            max_position < max_supported_position,
+            "target position {max_position} exceeds predictor capacity {max_supported_position}; increase max_target_len"
+        );
 
         // 1. Project context to predictor dimension
         let ctx = self.input_proj.forward(context.embeddings.clone());
         // ctx: [batch, ctx_len, predictor_embed_dim]
 
-        // 2. Create prediction tokens for this batch
-        let pred_tokens = self
-            .prediction_tokens
-            .clone()
-            .slice([0..num_targets, 0..self.predictor_embed_dim])
-            .unsqueeze::<3>()
-            .expand([batch, num_targets, self.predictor_embed_dim]);
+        // 2. Select prediction tokens using the actual target positions.
+        let pred_tokens = embedding(self.prediction_tokens.clone(), target_positions);
 
         // 3. Concatenate context + prediction tokens: [batch, ctx_len + num_targets, dim]
         let combined = Tensor::cat(vec![ctx, pred_tokens], 1);
@@ -166,6 +173,31 @@ impl<B: Backend> Predictor<B> for TransformerPredictor<B> {
 
         Representation::new(pred_out)
     }
+}
+
+fn sinusoidal_prediction_tokens<B: Backend>(
+    max_target_len: usize,
+    embed_dim: usize,
+    device: &B::Device,
+) -> Tensor<B, 2> {
+    let mut data = vec![0.0f32; max_target_len * embed_dim];
+
+    for position in 0..max_target_len {
+        for dim in 0..embed_dim {
+            let exponent = (2 * (dim / 2)) as f64 / embed_dim as f64;
+            let angle = position as f64 / 10_000_f64.powf(exponent);
+            data[position * embed_dim + dim] = if dim % 2 == 0 {
+                angle.sin() as f32
+            } else {
+                angle.cos() as f32
+            };
+        }
+    }
+
+    Tensor::from_floats(
+        burn::tensor::TensorData::new(data, [max_target_len, embed_dim]),
+        device,
+    )
 }
 
 // --- Predictor Transformer Block ---
@@ -333,6 +365,18 @@ mod tests {
         burn_ndarray::NdArrayDevice::Cpu
     }
 
+    fn target_positions(indices: &[usize], batch: usize) -> Tensor<TestBackend, 2> {
+        let mut data = Vec::with_capacity(batch * indices.len());
+        for _ in 0..batch {
+            data.extend(indices.iter().map(|&index| index as f32));
+        }
+
+        Tensor::from_floats(
+            burn::tensor::TensorData::new(data, [batch, indices.len()]),
+            &device(),
+        )
+    }
+
     #[test]
     fn test_predictor_output_shape() {
         let config = TransformerPredictorConfig {
@@ -372,6 +416,35 @@ mod tests {
     }
 
     #[test]
+    fn test_predictor_output_depends_on_target_positions() {
+        let config = TransformerPredictorConfig {
+            encoder_embed_dim: 16,
+            predictor_embed_dim: 8,
+            num_layers: 1,
+            num_heads: 2,
+            max_target_len: 16,
+        };
+        let predictor = config.init::<TestBackend>(&device());
+
+        let context = Representation::new(Tensor::zeros([1, 4, 16], &device()));
+        let positions_a = target_positions(&[0, 1], 1);
+        let positions_b = target_positions(&[2, 3], 1);
+
+        let pred_a = predictor.predict(&context, &positions_a, None);
+        let pred_b = predictor.predict(&context, &positions_b, None);
+        let diff: f32 = (pred_a.embeddings - pred_b.embeddings)
+            .abs()
+            .sum()
+            .into_scalar()
+            .elem();
+
+        assert!(
+            diff > 1e-6,
+            "target positions should affect predictor output, diff={diff}"
+        );
+    }
+
+    #[test]
     fn test_ijepa_full_pipeline() {
         // End-to-end test: encode → mask → predict → compute energy
         let config = IJepaConfig::tiny_test();
@@ -402,7 +475,7 @@ mod tests {
 
         // 4. Predict target from context
         let num_targets = mask.target_indices.len();
-        let target_pos: Tensor<TestBackend, 2> = Tensor::zeros([1, num_targets], &device());
+        let target_pos = target_positions(&mask.target_indices, 1);
         let predicted = model.predictor.predict(&context_repr, &target_pos, None);
 
         assert_eq!(predicted.seq_len(), num_targets);
@@ -577,7 +650,7 @@ mod tests {
 
         // 4. Predict target from context
         let num_targets = mask.target_indices.len();
-        let target_pos: Tensor<TestBackend, 2> = Tensor::zeros([2, num_targets], &device());
+        let target_pos = target_positions(&mask.target_indices, 2);
         let predicted = model.predictor.predict(&context_repr, &target_pos, None);
         assert_eq!(predicted.seq_len(), num_targets);
 

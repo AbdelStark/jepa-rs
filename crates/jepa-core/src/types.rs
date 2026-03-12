@@ -1,6 +1,6 @@
 //! Core data types for JEPA.
 
-use burn::tensor::{backend::Backend, Tensor};
+use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
 
 /// A representation produced by an encoder.
 ///
@@ -99,29 +99,34 @@ impl<B: Backend> Representation<B> {
     ///
     /// # Returns
     /// A new representation with shape `[batch, indices.len(), embed_dim]`.
+    ///
+    /// If the source representation carries a validity mask, the gathered
+    /// representation preserves the corresponding mask entries.
     pub fn gather(&self, indices: &[usize]) -> Self {
         let [batch, _seq_len, embed_dim] = self.embeddings.dims();
         let num_indices = indices.len();
         let device = self.embeddings.device();
 
         if num_indices == 0 {
-            return Self::new(Tensor::zeros([batch, 0, embed_dim], &device));
+            let embeddings = Tensor::zeros([batch, 0, embed_dim], &device);
+            let mask = self
+                .mask
+                .as_ref()
+                .map(|_| Tensor::zeros([batch, 0], &device));
+            return Self { embeddings, mask };
         }
 
-        // Build index tensor: [num_indices, embed_dim] where each row is the flat offset
-        // For each batch element b and index i: gather embeddings[b, indices[i], :]
-        // We do this by slicing each index and concatenating along dim 1.
-        let slices: Vec<Tensor<B, 3>> = indices
-            .iter()
-            .map(|&idx| {
-                self.embeddings
-                    .clone()
-                    .slice([0..batch, idx..idx + 1, 0..embed_dim])
-            })
-            .collect();
+        let index_data: Vec<i64> = indices.iter().map(|&index| index as i64).collect();
+        let index_tensor =
+            Tensor::<B, 1, Int>::from_data(TensorData::new(index_data, [num_indices]), &device);
 
-        let gathered = Tensor::cat(slices, 1); // [batch, num_indices, embed_dim]
-        Self::new(gathered)
+        let embeddings = self.embeddings.clone().select(1, index_tensor.clone());
+        let mask = self
+            .mask
+            .as_ref()
+            .map(|mask| mask.clone().select(1, index_tensor));
+
+        Self { embeddings, mask }
     }
 }
 
@@ -339,6 +344,23 @@ mod tests {
         let repr = Representation::new(Tensor::<TestBackend, 3>::ones([1, 4, 8], &device()));
         let gathered = repr.gather(&[0, 2]);
         assert!(!gathered.has_mask());
+    }
+
+    #[test]
+    fn test_representation_gather_preserves_mask() {
+        let embeddings = Tensor::<TestBackend, 3>::ones([1, 4, 2], &device());
+        let mask = Tensor::<TestBackend, 2>::from_floats([[1.0, 0.0, 1.0, 0.0]], &device());
+        let repr = Representation::with_mask(embeddings, mask);
+
+        let gathered = repr.gather(&[2, 1]);
+        let gathered_mask = gathered
+            .mask
+            .expect("gathered representation should keep its mask");
+        let values: Vec<f32> = gathered_mask.into_data().to_vec().unwrap();
+
+        assert_eq!(values.len(), 2);
+        assert!((values[0] - 1.0).abs() < 1e-6);
+        assert!((values[1] - 0.0).abs() < 1e-6);
     }
 
     #[test]

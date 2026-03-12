@@ -1,43 +1,46 @@
 # jepa-rs
 
-**Production-grade Rust implementation of the Joint Embedding Predictive Architecture (JEPA).**
+Rust workspace for JEPA building blocks on top of `burn` 0.16.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](#license)
+[Specification](./SPECIFICATION.md) | [Architecture](./ARCHITECTURE.md) | [Gap Analysis](./PRODUCTION_GAP.md) | [Roadmap](./ROADMAP.md) | [Work Packages](./WORK_PACKAGES.md) | [Contributing](./CONTRIBUTING.md) | [Changelog](./CHANGELOG.md)
 
-[Specification](./SPECIFICATION.md) | [BDD Features](./specs/gherkin/features.feature) | [Changelog](./CHANGELOG.md)
+## What This Is
 
----
+`jepa-rs` implements the main components of Joint Embedding Predictive Architectures: core traits, vision encoders and predictors, world-model utilities, training helpers, and checkpoint compatibility code.
 
-## What is JEPA?
+## Who It Is For
 
-[JEPA (Joint Embedding Predictive Architecture)](https://openreview.net/pdf?id=BZ5a1r-kVsf) is a self-supervised learning framework proposed by Yann LeCun. Unlike generative models that predict in pixel space, JEPA predicts in **representation space** — learning abstract, semantic features without reconstruction.
+This repository is for Rust developers who want to experiment with JEPA-style models, extend the architecture, or build backend-agnostic ML components without depending on Python at runtime.
 
-JEPA is the architecture behind [I-JEPA](https://github.com/facebookresearch/ijepa) (images), [V-JEPA](https://github.com/facebookresearch/jepa) (video), and [V-JEPA 2](https://ai.meta.com/vjepa/), and is the core technology of [AMI Labs](https://amilabs.xyz/).
+## Status
 
-## Why Rust?
+As of March 12, 2026, this project is **alpha**.
 
-All existing JEPA implementations are Python/PyTorch. `jepa-rs` brings JEPA to Rust for:
+It is suitable for local research, API exploration, and extending JEPA components inside Rust codebases. It is not yet suitable for parity-sensitive production training or deployment pipelines.
 
-- **Safety-critical deployment** — memory safety guarantees for healthcare, robotics, and industrial settings
-- **Deterministic execution** — no garbage collector, no runtime surprises; prerequisite for verifiable AI
-- **Bare-metal inference** — run on ARM, RISC-V, wearables, and edge devices without a Python runtime
-- **Production infrastructure** — video preprocessing, data pipelines, and model serving at scale
+Known limitations:
 
-## Architecture
+- The generic trainer in [`crates/jepa-train/src/trainer.rs`](./crates/jepa-train/src/trainer.rs) slices context and target tokens after encoder forward, so it does not enforce strict pre-encoder masking semantics.
+- ONNX loading in [`crates/jepa-compat/src/onnx.rs`](./crates/jepa-compat/src/onnx.rs) is still a stub until an ONNX runtime dependency is added.
+- Differential tests against the Python reference implementations are not wired yet.
+- Fuzz targets and CI-enforced coverage thresholds are not present yet.
+- Workspace crates are not published to crates.io yet.
 
+## Workspace Layout
+
+```text
+jepa-core     Core traits, tensor wrappers, masking, energy, collapse regularization, EMA
+jepa-vision   ViT encoder, image/video JEPA models, predictor implementations
+jepa-world    Action-conditioned prediction, planning, hierarchy, short-term memory
+jepa-train    Training-step orchestration, schedules, checkpoint metadata
+jepa-compat   safetensors loading, key remapping, ONNX API surface
 ```
-jepa-core     Core traits: Encoder, Predictor, EnergyFn, MaskingStrategy, EMA
-jepa-vision   Vision Transformer (ViT), patchification, RoPE, I-JEPA, V-JEPA
-jepa-world    Action conditioning, CEM planner, H-JEPA, memory
-jepa-train    Training loop, LR schedulers, checkpointing
-jepa-compat   Load PyTorch/safetensors weights, ONNX import
-```
 
-Backend-agnostic via the [burn](https://burn.dev) framework. Supports CPU (`ndarray`), GPU (`wgpu`, `cuda`), and WASM.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for design notes and invariants, [PRODUCTION_GAP.md](./PRODUCTION_GAP.md) for the current blocker register, [ROADMAP.md](./ROADMAP.md) for milestone sequencing, and [WORK_PACKAGES.md](./WORK_PACKAGES.md) for implementation-sized tasks.
 
 ## Quick Start
 
-Add `jepa-rs` crates to your `Cargo.toml`:
+The crates are not published yet, so depend on the workspace directly from git:
 
 ```toml
 [dependencies]
@@ -45,96 +48,62 @@ jepa-core = { git = "https://github.com/AbdelStark/jepa-rs" }
 jepa-vision = { git = "https://github.com/AbdelStark/jepa-rs" }
 ```
 
-### Example: I-JEPA Forward Pass
+Minimal masking example:
 
 ```rust
-use burn::prelude::*;
-use burn_ndarray::NdArray;
 use jepa_core::masking::{BlockMasking, MaskingStrategy};
 use jepa_core::types::InputShape;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-type B = NdArray<f32>;
-
 fn main() {
-    // Define masking strategy (I-JEPA style)
     let masking = BlockMasking {
         num_targets: 4,
         target_scale: (0.15, 0.2),
         target_aspect_ratio: (0.75, 1.5),
     };
 
-    // Generate a mask for a 14x14 patch grid (ViT-Base with 16x16 patches on 224x224 images)
     let shape = InputShape::Image { height: 14, width: 14 };
     let mut rng = ChaCha8Rng::seed_from_u64(42);
     let mask = masking.generate_mask(&shape, &mut rng);
 
     assert!(mask.validate().is_ok());
-    println!("Context tokens: {}, Target tokens: {}",
-        mask.context_indices.len(), mask.target_indices.len());
+    assert_eq!(mask.context_indices.len() + mask.target_indices.len(), 196);
 }
 ```
 
-See the [vision examples](./crates/jepa-vision/examples/) and [world model example](./crates/jepa-world/examples/) for more.
+Runnable examples live in [`crates/jepa-vision/examples`](./crates/jepa-vision/examples) and [`crates/jepa-world/examples`](./crates/jepa-world/examples).
 
-## Status
-
-**v0.1.0-dev** — All 10 RFCs from [SPECIFICATION.md](./SPECIFICATION.md) are implemented across the workspace.
-
-| Component | Status | Tests |
-|-----------|--------|-------|
-| Core traits & types | Complete | 98 unit + property tests |
-| Vision (ViT, I-JEPA, V-JEPA) | Complete | 49 unit + property + integration tests |
-| World model & planning | Complete | 29 unit + property tests |
-| Training loop | Complete | 13 unit + property tests |
-| PyTorch compat (safetensors) | Complete | 39 unit + property tests |
-| ONNX runtime | API-complete (stub) | Included above |
-
-### Remaining work for v0.1.0
-
-- ONNX runtime integration (needs `ort` crate dependency)
-- Differential testing against Python reference implementations
-- Published crate on crates.io
-
-## Development
+## Build And Test
 
 ```bash
-# Build
 cargo build
-
-# Run all tests (267 unit/integration + 23 doc tests)
 cargo test
-
-# Run tests for a specific crate
-cargo test -p jepa-core
-
-# Lint
-cargo clippy --all-targets
-
-# Format
+cargo clippy --all-targets -- -D warnings
 cargo fmt -- --check
-
-# Benchmarks
-cargo bench -p jepa-core
-cargo bench -p jepa-vision
+cargo doc --no-deps
 ```
 
-## Reference Implementations
+Target a single crate when iterating:
 
-Differential tests are designed to run against these Python codebases:
+```bash
+cargo test -p jepa-core
+cargo test -p jepa-vision
+```
 
-| Repo | Description |
-|------|-------------|
-| [facebookresearch/ijepa](https://github.com/facebookresearch/ijepa) | I-JEPA (images) |
-| [facebookresearch/jepa](https://github.com/facebookresearch/jepa) | V-JEPA / V-JEPA 2 (video) |
-| [facebookresearch/eb_jepa](https://github.com/facebookresearch/eb_jepa) | EB-JEPA (educational library) |
-| [facebookresearch/jepa-wms](https://github.com/facebookresearch/jepa-wms) | JEPA World Models |
+## Development Notes
 
-## License
+- `SPECIFICATION.md` is the design source of truth. Treat it as read-only unless a human explicitly asks to change it.
+- Public trait signatures and `Cargo.toml` changes are gated work.
+- `Representation::gather` preserves masks and should be preferred over ad hoc token slicing.
+- `TransformerPredictor` expects `target_positions` to contain real flattened token indices, not placeholder zeros.
 
-Licensed under the [MIT License](./LICENSE).
+## Planning Docs
 
-## Author
+- [PRODUCTION_GAP.md](./PRODUCTION_GAP.md): current blocker register and dependency graph
+- [ROADMAP.md](./ROADMAP.md): milestone order and exit criteria
+- [WORK_PACKAGES.md](./WORK_PACKAGES.md): implementation-ready task breakdown
 
-[Abdel Bakhta](https://github.com/AbdelStark) ([@AbdelStark](https://x.com/AbdelStark))
+## Help
+
+Open a GitHub issue in the repository for bugs, missing features, or design questions.

@@ -9,7 +9,7 @@
 //! following burn's convention of keeping optimization separate from
 //! model logic.
 
-use burn::tensor::{backend::Backend, Tensor};
+use burn::tensor::{backend::Backend, Tensor, TensorData};
 
 use jepa_core::collapse::CollapseRegularizer;
 use jepa_core::ema::Ema;
@@ -126,33 +126,37 @@ where
     ) -> JepaForwardOutput<B> {
         // 1. Generate mask
         let mask = self.masking.generate_mask(input_shape, rng);
+        mask.validate()
+            .expect("masking strategy must produce a valid mask");
 
-        // 2. Encode full input with context encoder (gradients flow through this)
+        // The generic encoder trait doesn't let the trainer remove masked tokens
+        // before encoder attention runs, so this orchestration layer filters
+        // tokens immediately after encoding. Encoder-specific training code
+        // should prefer pre-encoder masking when strict JEPA semantics matter.
         let context_repr = self.context_encoder.encode(input);
+        let context_slice = context_repr.gather(&mask.context_indices);
 
         // 3. Encode full input with target encoder (no gradient update)
         //    Gradient detachment is the caller's responsibility via burn's autodiff.
         let target_repr = self.target_encoder.encode(input);
+        let target_slice = target_repr.gather(&mask.target_indices);
 
         // 4. Predict target representations from context
-        let batch = context_repr.batch_size();
+        let batch = context_slice.batch_size();
         let num_targets = mask.target_indices.len();
-        let device = context_repr.embeddings.device();
-        let target_positions: Tensor<B, 2> = Tensor::zeros([batch, num_targets], &device);
+        let device = context_slice.embeddings.device();
+        let target_positions = target_positions_tensor::<B>(&mask.target_indices, batch, &device);
 
         let predicted = self
             .predictor
-            .predict(&context_repr, &target_positions, None);
-
-        // 5. Extract actual target tokens from target representation using mask indices
-        let embed_dim = target_repr.embed_dim();
-        let target_slice = target_repr.gather(&mask.target_indices);
+            .predict(&context_slice, &target_positions, None);
 
         // 6. Compute energy (prediction loss)
         let energy = self.energy_fn.compute(&predicted, &target_slice);
 
         // 7. Compute collapse prevention regularization
         //    Flatten to [batch * seq_len, embed_dim] for VICReg
+        let embed_dim = target_slice.embed_dim();
         let pred_flat = predicted
             .embeddings
             .clone()
@@ -201,6 +205,20 @@ pub struct StepReport {
 /// Convenience function for the training loop to query schedule values.
 pub fn schedule_values(lr_schedule: &dyn LrSchedule, ema: &Ema, step: usize) -> (f64, f64) {
     (lr_schedule.get_lr(step), ema.get_momentum(step))
+}
+
+fn target_positions_tensor<B: Backend>(
+    indices: &[usize],
+    batch: usize,
+    device: &B::Device,
+) -> Tensor<B, 2> {
+    let num_targets = indices.len();
+    let mut position_data = Vec::with_capacity(batch * num_targets);
+    for _ in 0..batch {
+        position_data.extend(indices.iter().map(|&index| index as f32));
+    }
+
+    Tensor::from_floats(TensorData::new(position_data, [batch, num_targets]), device)
 }
 
 #[cfg(test)]
@@ -259,6 +277,30 @@ mod tests {
                 [batch, num_targets, self.embed_dim],
                 &target_positions.device(),
             ))
+        }
+    }
+
+    struct PositionAwarePredictor;
+
+    impl Predictor<TestBackend> for PositionAwarePredictor {
+        fn predict(
+            &self,
+            _context: &Representation<TestBackend>,
+            target_positions: &Tensor<TestBackend, 2>,
+            _latent: Option<&Tensor<TestBackend, 2>>,
+        ) -> Representation<TestBackend> {
+            let [batch, num_targets] = target_positions.dims();
+            Representation::new(target_positions.clone().reshape([batch, num_targets, 1]))
+        }
+    }
+
+    struct FixedMasking {
+        mask: MaskSpec,
+    }
+
+    impl MaskingStrategy for FixedMasking {
+        fn generate_mask(&self, _shape: &InputShape, _rng: &mut impl rand::Rng) -> MaskSpec {
+            self.mask.clone()
         }
     }
 
@@ -339,6 +381,47 @@ mod tests {
 
         // Mask should be valid
         assert!(output.mask.validate().is_ok());
+    }
+
+    #[test]
+    fn test_jepa_forward_step_passes_real_target_positions() {
+        let embed_dim = 1;
+        let context_encoder = TestEncoder { embed_dim };
+        let target_encoder = TestEncoder { embed_dim };
+        let predictor = PositionAwarePredictor;
+        let energy_fn = L2Energy;
+        let regularizer = VICReg::default();
+        let masking = FixedMasking {
+            mask: MaskSpec {
+                context_indices: vec![0, 2],
+                target_indices: vec![1, 3],
+                total_tokens: 4,
+            },
+        };
+
+        let components = JepaComponents::new(
+            &context_encoder,
+            &target_encoder,
+            &predictor,
+            &energy_fn,
+            &regularizer,
+            &masking,
+            0.0,
+        );
+
+        let input: Tensor<TestBackend, 4> = Tensor::ones([1, 1, 2, 2], &device());
+        let input_shape = InputShape::Image {
+            height: 2,
+            width: 2,
+        };
+
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(7);
+        let output = components.forward_step(&input, &input_shape, &mut rng);
+        let values: Vec<f32> = output.predicted.embeddings.into_data().to_vec().unwrap();
+
+        assert_eq!(values.len(), 2);
+        assert!((values[0] - 1.0).abs() < 1e-6);
+        assert!((values[1] - 3.0).abs() < 1e-6);
     }
 
     #[test]

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **jepa-core**: `Representation::gather` now uses indexed selection and preserves representation masks instead of dropping them silently
+- **jepa-train**: `JepaComponents::forward_step` now validates generated masks and passes real target indices to predictors
+- **jepa-vision**: `TransformerPredictor` now conditions prediction tokens on target positions instead of ignoring them
+- **jepa-compat**: `OnnxModelInfo::from_file` now distinguishes missing files from runtime-unavailable errors
+- Documentation and agent context files now describe the project as alpha and explicitly call out the current trainer and ONNX limitations
+- Added in-repo planning docs for production gaps, milestone roadmap, and implementation work packages
+
 ### Added
 - **jepa-core**: Core traits (`Encoder`, `Predictor`, `EnergyFn`, `MaskingStrategy`, `CollapseRegularizer`) — RFC-001 through RFC-007
 - **jepa-core**: Energy functions: `L2Energy`, `CosineEnergy`, `SmoothL1Energy` — RFC-004
