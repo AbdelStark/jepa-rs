@@ -35,6 +35,24 @@ pub struct TrainStepOutput<B: Backend> {
 }
 
 /// Configuration for the JEPA training loop.
+///
+/// # Example
+///
+/// ```
+/// use jepa_train::TrainConfig;
+///
+/// let config = TrainConfig::default();
+/// assert!(config.validate().is_ok());
+///
+/// // Custom config
+/// let config = TrainConfig {
+///     total_steps: 50_000,
+///     warmup_steps: 5_000,
+///     peak_lr: 1e-3,
+///     ..TrainConfig::default()
+/// };
+/// assert!(config.validate().is_ok());
+/// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TrainConfig {
     /// Total number of training steps.
@@ -111,6 +129,20 @@ pub enum TrainConfigError {
 }
 
 /// Training metrics aggregated over multiple steps.
+///
+/// # Example
+///
+/// ```
+/// use jepa_train::TrainMetrics;
+///
+/// let mut metrics = TrainMetrics::default();
+/// metrics.record(1.0, 0.5, 1.5);
+/// metrics.record(2.0, 1.0, 3.0);
+///
+/// let (avg_energy, avg_reg, avg_total) = metrics.take_averages();
+/// assert!((avg_energy - 1.5).abs() < 1e-10);
+/// assert!((avg_total - 2.25).abs() < 1e-10);
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct TrainMetrics {
     /// Running sum of energy values.
