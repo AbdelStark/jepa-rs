@@ -7,7 +7,7 @@
 //! design decision in JEPA, as the masking strategy determines what
 //! the model learns.
 
-use rand::Rng;
+use rand::{Rng, RngExt as _};
 
 use crate::types::{InputShape, MaskSpec};
 
@@ -79,9 +79,9 @@ impl MaskingStrategy for BlockMasking {
         for _ in 0..self.num_targets {
             // Sample scale and aspect ratio
             let scale = self.target_scale.0
-                + rng.gen::<f64>() * (self.target_scale.1 - self.target_scale.0);
+                + rng.random::<f64>() * (self.target_scale.1 - self.target_scale.0);
             let aspect = self.target_aspect_ratio.0
-                + rng.gen::<f64>() * (self.target_aspect_ratio.1 - self.target_aspect_ratio.0);
+                + rng.random::<f64>() * (self.target_aspect_ratio.1 - self.target_aspect_ratio.0);
 
             // Compute block dimensions
             let num_patches = (total as f64 * scale / self.num_targets as f64).round() as usize;
@@ -96,8 +96,8 @@ impl MaskingStrategy for BlockMasking {
             let block_w = block_w.clamp(1, width);
 
             // Random top-left corner
-            let top = rng.gen_range(0..=(height - block_h));
-            let left = rng.gen_range(0..=(width - block_w));
+            let top = rng.random_range(0..=(height - block_h));
+            let left = rng.random_range(0..=(width - block_w));
 
             for r in top..(top + block_h) {
                 for c in left..(left + block_w) {
@@ -160,20 +160,20 @@ impl MaskingStrategy for SpatiotemporalMasking {
 
         for _ in 0..self.num_targets {
             // Sample temporal extent
-            let t_extent = rng.gen_range(self.temporal_extent.0..=self.temporal_extent.1);
+            let t_extent = rng.random_range(self.temporal_extent.0..=self.temporal_extent.1);
             let t_extent = t_extent.clamp(1, frames);
 
             // Sample spatial block
             let scale = self.spatial_scale.0
-                + rng.gen::<f64>() * (self.spatial_scale.1 - self.spatial_scale.0);
+                + rng.random::<f64>() * (self.spatial_scale.1 - self.spatial_scale.0);
             let num_spatial = (frame_area as f64 * scale).round() as usize;
             let block_side = (num_spatial as f64).sqrt().round() as usize;
             let block_h = block_side.clamp(1, height);
             let block_w = block_side.clamp(1, width);
 
-            let t_start = rng.gen_range(0..=(frames - t_extent));
-            let top = rng.gen_range(0..=(height - block_h));
-            let left = rng.gen_range(0..=(width - block_w));
+            let t_start = rng.random_range(0..=(frames - t_extent));
+            let top = rng.random_range(0..=(height - block_h));
+            let left = rng.random_range(0..=(width - block_w));
 
             for t in t_start..(t_start + t_extent) {
                 for r in top..(top + block_h) {
@@ -239,8 +239,8 @@ impl MaskingStrategy for MultiBlockMasking {
             let block_h = block_side.clamp(1, height);
             let block_w = block_side.clamp(1, width);
 
-            let top = rng.gen_range(0..=(height - block_h));
-            let left = rng.gen_range(0..=(width - block_w));
+            let top = rng.random_range(0..=(height - block_h));
+            let left = rng.random_range(0..=(width - block_w));
 
             for r in top..(top + block_h) {
                 for c in left..(left + block_w) {
@@ -257,7 +257,7 @@ impl MaskingStrategy for MultiBlockMasking {
         }
         // Ensure non-empty target
         if target_set.is_empty() {
-            target_set.insert(rng.gen_range(0..total));
+            target_set.insert(rng.random_range(0..total));
         }
 
         let mut target_indices: Vec<usize> = target_set.into_iter().collect();

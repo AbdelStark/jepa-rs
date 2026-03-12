@@ -150,7 +150,7 @@ mod tests {
     use burn::tensor::ElementConversion;
     use burn_ndarray::NdArray;
     use proptest::prelude::*;
-    use rand::Rng as _;
+    use rand::RngExt as _;
     use rand::SeedableRng;
 
     type TestBackend = NdArray<f32>;
@@ -313,8 +313,8 @@ mod tests {
         #[test]
         fn prop_l2_energy_never_negative(seed in 0u64..10000) {
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-            let a_data: Vec<f32> = (0..24).map(|_| (rng.gen::<f32>() - 0.5) * 10.0).collect();
-            let b_data: Vec<f32> = (0..24).map(|_| (rng.gen::<f32>() - 0.5) * 10.0).collect();
+            let a_data: Vec<f32> = (0..24).map(|_| (rng.random::<f32>() - 0.5) * 10.0).collect();
+            let b_data: Vec<f32> = (0..24).map(|_| (rng.random::<f32>() - 0.5) * 10.0).collect();
             let a = make_repr(&a_data, [2, 3, 4]);
             let b = make_repr(&b_data, [2, 3, 4]);
             let val: f32 = L2Energy.compute(&a, &b).value.into_scalar().elem();
@@ -325,8 +325,8 @@ mod tests {
         #[test]
         fn prop_l2_energy_is_symmetric(seed in 0u64..10000) {
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-            let a_data: Vec<f32> = (0..24).map(|_| rng.gen::<f32>() * 5.0).collect();
-            let b_data: Vec<f32> = (0..24).map(|_| rng.gen::<f32>() * 5.0).collect();
+            let a_data: Vec<f32> = (0..24).map(|_| rng.random::<f32>() * 5.0).collect();
+            let b_data: Vec<f32> = (0..24).map(|_| rng.random::<f32>() * 5.0).collect();
             let a = make_repr(&a_data, [2, 3, 4]);
             let b = make_repr(&b_data, [2, 3, 4]);
             let e_ab: f32 = L2Energy.compute(&a, &b).value.into_scalar().elem();
@@ -337,7 +337,7 @@ mod tests {
         #[test]
         fn prop_l2_energy_zero_for_identical(seed in 0u64..10000) {
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-            let data: Vec<f32> = (0..24).map(|_| rng.gen::<f32>() * 10.0).collect();
+            let data: Vec<f32> = (0..24).map(|_| rng.random::<f32>() * 10.0).collect();
             let repr = make_repr(&data, [2, 3, 4]);
             let val: f32 = L2Energy.compute(&repr, &repr).value.into_scalar().elem();
             prop_assert!(val.abs() < 1e-6, "expected ~0 for identical, got {val}");
@@ -346,8 +346,8 @@ mod tests {
         #[test]
         fn prop_smooth_l1_never_negative(seed in 0u64..10000) {
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-            let a_data: Vec<f32> = (0..12).map(|_| rng.gen::<f32>() * 10.0).collect();
-            let b_data: Vec<f32> = (0..12).map(|_| rng.gen::<f32>() * 10.0).collect();
+            let a_data: Vec<f32> = (0..12).map(|_| rng.random::<f32>() * 10.0).collect();
+            let b_data: Vec<f32> = (0..12).map(|_| rng.random::<f32>() * 10.0).collect();
             let a = make_repr(&a_data, [1, 3, 4]);
             let b = make_repr(&b_data, [1, 3, 4]);
             let val: f32 = SmoothL1Energy::new(1.0).compute(&a, &b).value.into_scalar().elem();

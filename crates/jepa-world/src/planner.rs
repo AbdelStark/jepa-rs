@@ -8,6 +8,7 @@
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};
+use rand::RngExt as _;
 
 use jepa_core::types::{Energy, Representation};
 
@@ -253,7 +254,7 @@ impl RandomShootingPlanner {
                 for t in 0..horizon {
                     let action_vals: Vec<f64> = (0..action_dim)
                         .map(|d| {
-                            let noise: f64 = rng.gen::<f64>() * 2.0 - 1.0; // uniform [-1, 1]
+                            let noise: f64 = rng.random::<f64>() * 2.0 - 1.0; // uniform [-1, 1]
                             mean[t][d] + std[t][d] * noise
                         })
                         .collect();
