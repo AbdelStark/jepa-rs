@@ -17,13 +17,24 @@ use jepa_core::types::Representation;
 /// Stores the most recent `capacity` state representations in insertion order.
 /// When the buffer is full, inserting a new representation evicts the oldest one.
 ///
-/// # Usage
+/// # Example
 ///
-/// A world model can use this to condition predictions on recent history:
-/// ```ignore
-/// let mut memory = ShortTermMemory::new(16);
-/// memory.push(current_state);
-/// let context = memory.as_slice(); // pass to predictor as additional context
+/// ```
+/// use burn::tensor::Tensor;
+/// use burn_ndarray::NdArray;
+/// use jepa_core::types::Representation;
+/// use jepa_world::ShortTermMemory;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let mut memory: ShortTermMemory<B> = ShortTermMemory::new(4);
+/// assert!(memory.is_empty());
+///
+/// let state = Representation::new(Tensor::ones([1, 8, 32], &device));
+/// memory.push(state);
+/// assert_eq!(memory.len(), 1);
+/// assert!(memory.latest().is_some());
 /// ```
 pub struct ShortTermMemory<B: Backend> {
     /// Ring buffer storage.

@@ -12,6 +12,22 @@ use serde::{Deserialize, Serialize};
 ///
 /// This captures the training state at the time the checkpoint was saved,
 /// allowing training to resume from exactly where it left off.
+///
+/// # Example
+///
+/// ```
+/// use jepa_train::CheckpointMeta;
+///
+/// let mut meta = CheckpointMeta::new(10000);
+/// assert!(!meta.is_complete());
+/// assert!((meta.progress() - 0.0).abs() < 1e-10);
+///
+/// meta.step = 5000;
+/// assert!((meta.progress() - 0.5).abs() < 1e-10);
+///
+/// meta.step = 10000;
+/// assert!(meta.is_complete());
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointMeta {
     /// Training step at which this checkpoint was saved.

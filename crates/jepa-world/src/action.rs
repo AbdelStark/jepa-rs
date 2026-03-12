@@ -16,6 +16,21 @@ use jepa_core::types::Representation;
 /// continuous (e.g., robot joint torques) or discrete (encoded as one-hot).
 ///
 /// Shape: `[batch, action_dim]`
+///
+/// # Example
+///
+/// ```
+/// use burn::tensor::{Tensor, backend::Backend};
+/// use burn_ndarray::NdArray;
+/// use jepa_world::Action;
+///
+/// type B = NdArray<f32>;
+/// let device = burn_ndarray::NdArrayDevice::Cpu;
+///
+/// let action = Action::new(Tensor::<B, 2>::zeros([2, 4], &device));
+/// assert_eq!(action.batch_size(), 2);
+/// assert_eq!(action.action_dim(), 4);
+/// ```
 #[derive(Debug, Clone)]
 pub struct Action<B: Backend> {
     /// The action data tensor. Shape: `[batch, action_dim]`

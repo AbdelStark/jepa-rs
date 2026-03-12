@@ -16,7 +16,12 @@ burn-ndarray = { workspace = true }
 proptest = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
+jepa-train = { path = "../jepa-train" }
 
 [[example]]
 name = "ijepa_demo"
+required-features = []
+
+[[example]]
+name = "ijepa_train_loop"
 required-features = []

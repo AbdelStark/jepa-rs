@@ -29,6 +29,23 @@ pub trait LrSchedule {
 ///          ├──────┼──────────┤
 ///          0   warmup     total
 /// ```
+///
+/// # Example
+///
+/// ```
+/// use jepa_train::schedule::{WarmupCosineSchedule, LrSchedule};
+///
+/// let schedule = WarmupCosineSchedule::new(1e-3, 1000, 10000);
+///
+/// // LR starts near zero
+/// assert!(schedule.get_lr(0) < 1e-6);
+///
+/// // LR reaches peak at end of warmup
+/// assert!((schedule.get_lr(1000) - 1e-3).abs() < 1e-6);
+///
+/// // LR decays toward end_lr
+/// assert!(schedule.get_lr(10000) < 1e-4);
+/// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WarmupCosineSchedule {
     /// Starting learning rate (at step 0).
