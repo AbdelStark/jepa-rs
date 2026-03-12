@@ -90,6 +90,75 @@ impl VitConfig {
         }
     }
 
+    /// Create a ViT-Large/16 config for 224x224 images.
+    ///
+    /// Matches the architecture used in Facebook Research I-JEPA ViT-L/16.
+    pub fn vit_large_patch16() -> Self {
+        Self {
+            in_channels: 3,
+            image_height: 224,
+            image_width: 224,
+            patch_size: (16, 16),
+            embed_dim: 1024,
+            num_layers: 24,
+            num_heads: 16,
+            mlp_dim: 4096,
+            dropout: 0.0,
+        }
+    }
+
+    /// Create a ViT-Huge/14 config for 224x224 images.
+    ///
+    /// Matches the architecture used in Facebook Research I-JEPA ViT-H/14
+    /// (the primary model released with the I-JEPA paper).
+    pub fn vit_huge_patch14() -> Self {
+        Self {
+            in_channels: 3,
+            image_height: 224,
+            image_width: 224,
+            patch_size: (14, 14),
+            embed_dim: 1280,
+            num_layers: 32,
+            num_heads: 16,
+            mlp_dim: 5120,
+            dropout: 0.0,
+        }
+    }
+
+    /// Create a ViT-Huge/16 config for 448x448 images.
+    ///
+    /// Matches the architecture used in Facebook Research I-JEPA ViT-H/16-448.
+    pub fn vit_huge_patch16_448() -> Self {
+        Self {
+            in_channels: 3,
+            image_height: 448,
+            image_width: 448,
+            patch_size: (16, 16),
+            embed_dim: 1280,
+            num_layers: 32,
+            num_heads: 16,
+            mlp_dim: 5120,
+            dropout: 0.0,
+        }
+    }
+
+    /// Create a ViT-Giant/16 config for 224x224 images.
+    ///
+    /// Matches the architecture used in Facebook Research I-JEPA ViT-G/16.
+    pub fn vit_giant_patch16() -> Self {
+        Self {
+            in_channels: 3,
+            image_height: 224,
+            image_width: 224,
+            patch_size: (16, 16),
+            embed_dim: 1408,
+            num_layers: 40,
+            num_heads: 16,
+            mlp_dim: 6144,
+            dropout: 0.0,
+        }
+    }
+
     /// Create a minimal config for testing.
     pub fn tiny_test() -> Self {
         Self {
