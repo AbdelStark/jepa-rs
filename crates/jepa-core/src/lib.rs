@@ -24,7 +24,7 @@ pub mod masking;
 pub mod predictor;
 pub mod types;
 
-pub use collapse::CollapseRegularizer;
+pub use collapse::{BarlowTwins, CollapseRegularizer};
 pub use config::JepaConfig;
 pub use ema::Ema;
 pub use encoder::Encoder;
