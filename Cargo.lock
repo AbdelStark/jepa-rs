@@ -2653,6 +2653,7 @@ version = "0.1.0"
 dependencies = [
  "burn",
  "burn-ndarray",
+ "criterion",
  "jepa-core",
  "jepa-train",
  "proptest",

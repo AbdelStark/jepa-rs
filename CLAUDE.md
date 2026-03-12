@@ -1,7 +1,7 @@
 <identity>
 jepa-rs: Production-grade Rust implementation of JEPA (Joint Embedding Predictive Architecture) for self-supervised learning.
-Core crate (jepa-core) has 6 fully implemented modules with 88 unit tests + 6 doc tests passing.
-Outer crates (vision, world, train, compat) are stubs awaiting RFC-002/003/008/009/010 implementation.
+All 5 workspace crates are fully implemented with 245 unit/integration tests + 16 doc tests passing.
+All 10 RFCs from SPECIFICATION.md are implemented across the workspace.
 </identity>
 
 <stack>
@@ -14,7 +14,7 @@ Outer crates (vision, world, train, compat) are stubs awaiting RFC-002/003/008/0
 | Weights I/O | safetensors  | 0.4      | PyTorch/HuggingFace checkpoint loading   |
 | Errors      | thiserror    | 2        | Derive macro for error enums             |
 | Testing     | proptest     | 1        | Property-based testing                   |
-| Benchmarks  | criterion    | 0.5      | Wired in core_bench.rs, not yet populated |
+| Benchmarks  | criterion    | 0.5      | Populated: core_bench.rs + vision_bench.rs |
 | RNG         | rand + chacha| 0.8/0.3  | Deterministic seeded RNG                 |
 
 </stack>
@@ -33,14 +33,30 @@ crates/
 │       ├── masking.rs   # MaskingStrategy, BlockMasking, SpatiotemporalMasking, MultiBlockMasking (IMPLEMENTED, 14 tests)
 │       ├── collapse.rs  # CollapseRegularizer, VICReg, BarlowTwins (IMPLEMENTED, 21 tests)
 │       └── ema.rs       # Ema, CosineMomentumSchedule (IMPLEMENTED, 27 tests)
-├── jepa-vision/    # Vision-specific (ViT, I-JEPA, V-JEPA) — stubs [agent: create/modify]
-│   └── src/         # vit.rs, patch.rs, rope.rs, image.rs, video.rs (all stubs)
-├── jepa-world/     # World model / action-conditioned — stubs [agent: create/modify]
-│   └── src/         # action.rs, planner.rs, hierarchy.rs, memory.rs (all stubs)
-├── jepa-train/     # Training loop utilities — stubs [agent: create/modify]
-│   └── src/         # trainer.rs, schedule.rs, checkpoint.rs, step.rs (all stubs)
-└── jepa-compat/    # PyTorch checkpoint loading — stubs [agent: create/modify]
-    └── src/         # safetensors.rs, keymap.rs, onnx.rs (all stubs)
+├── jepa-vision/    # Vision-specific (ViT, I-JEPA, V-JEPA) — IMPLEMENTED [agent: create/modify]
+│   └── src/
+│       ├── vit.rs       # VitEncoder, TransformerBlock, MHSA, MLP (IMPLEMENTED, 10 tests + 3 proptests)
+│       ├── patch.rs     # PatchEmbedding for image patchification (IMPLEMENTED, 5 tests + 2 proptests)
+│       ├── rope.rs      # RotaryPositionEncoding2D for spatial awareness (IMPLEMENTED, 4 tests + 2 proptests)
+│       ├── image.rs     # TransformerPredictor, IJepa model (IMPLEMENTED, 8 tests + 4 BDD + 2 proptests)
+│       └── video.rs     # VitVideoEncoder, TubeletEmbedding, 3D RoPE, VJepa (IMPLEMENTED, 11 tests + 1 BDD)
+├── jepa-world/     # World model / action-conditioned — IMPLEMENTED [agent: create/modify]
+│   └── src/
+│       ├── action.rs     # Action, ActionConditionedPredictor trait (IMPLEMENTED, 3 tests)
+│       ├── planner.rs    # WorldModel, CEM planner, L2Cost (IMPLEMENTED, 7 tests + 2 proptests)
+│       ├── hierarchy.rs  # HierarchicalJepa, JepaLevel (IMPLEMENTED, 3 tests)
+│       └── memory.rs     # ShortTermMemory ring buffer (IMPLEMENTED, 10 tests + 3 proptests)
+├── jepa-train/     # Training loop utilities — IMPLEMENTED [agent: create/modify]
+│   └── src/
+│       ├── trainer.rs    # JepaComponents, forward_step orchestration (IMPLEMENTED, 5 tests)
+│       ├── schedule.rs   # WarmupCosineSchedule, LrSchedule trait (IMPLEMENTED, 6 tests + 3 proptests)
+│       ├── checkpoint.rs # CheckpointMeta serialization (IMPLEMENTED, 3 tests)
+│       └── step.rs       # TrainConfig, TrainMetrics, TrainStepOutput (IMPLEMENTED, 7 tests)
+└── jepa-compat/    # PyTorch checkpoint loading — IMPLEMENTED [agent: create/modify]
+    └── src/
+        ├── safetensors.rs # Load/convert safetensors checkpoints (IMPLEMENTED, 12 tests)
+        ├── keymap.rs      # I-JEPA/V-JEPA key mapping patterns (IMPLEMENTED, 11 tests + 6 proptests)
+        └── onnx.rs        # ONNX model info types (API-complete, runtime stub, 8 tests)
 specs/
 └── gherkin/
     └── features.feature  # 27 BDD scenarios across 6 features [agent: modify with care]
@@ -54,7 +70,7 @@ SPECIFICATION.md          # RFC archive (10 RFCs, 1105 lines) — the implementa
 |-----------------|-----------------------------------|---------------------------------------------|
 | Build           | `cargo build`                     | Succeeds — all workspace crates compile     |
 | Build (release) | `cargo build --release`           | Succeeds                                    |
-| Test            | `cargo test`                      | 88 unit + 6 doc tests pass (jepa-core)      |
+| Test            | `cargo test`                      | 245 unit/integration + 16 doc tests pass    |
 | Test (single)   | `cargo test -p jepa-core`         | Target specific crate                       |
 | Test (named)    | `cargo test -p jepa-core -- [name]` | Run a single test by name                 |
 | Test (verbose)  | `cargo test -p jepa-core -- --nocapture` | Show println output                  |
@@ -128,13 +144,12 @@ SPECIFICATION.md          # RFC archive (10 RFCs, 1105 lines) — the implementa
 </add_tests>
 
 <next_implementation_targets>
-  Priority order for remaining work:
-  1. RFC-002: Encoder (jepa-core trait done; ViT impl needed in jepa-vision)
-  2. RFC-003: Predictor (jepa-core trait done; cross-attention impl needed)
-  3. RFC-008: Training loop (jepa-train — depends on all core traits)
-  4. RFC-009: Action-conditioned world model (jepa-world)
-  5. RFC-010: Hierarchical JEPA (jepa-world)
-  6. PyTorch checkpoint loading (jepa-compat)
+  All RFCs are implemented. Remaining work:
+  1. ONNX runtime integration (jepa-compat/onnx.rs — needs `ort` crate dependency)
+  2. Distributed training support (out of scope for v0.1)
+  3. Differential testing against Python reference implementations
+  4. Fuzz testing targets for masking and energy functions
+  5. Additional benchmarks for jepa-train and jepa-world
 </next_implementation_targets>
 </workflows>
 
@@ -168,7 +183,7 @@ SPECIFICATION.md          # RFC archive (10 RFCs, 1105 lines) — the implementa
 | Slow first build (~10s)                  | burn macro expansion is heavy                          | Expected — use `cargo check` for faster iteration |
 | proptest shrinking takes long            | Input space too large                                  | Add `ProptestConfig::with_cases(100)` annotation |
 | Float assertion fails intermittently     | Tolerance too tight for accumulated ops                | Widen to 1e-4 for chained operations             |
-| Stub crate tests show 0 tests           | Vision/world/train/compat modules are stubs            | Expected — implement modules to add tests        |
+| ONNX test ignored                        | ort runtime crate not yet added as dependency          | Expected — add ort dependency when ready         |
 
 </known_issues>
 
