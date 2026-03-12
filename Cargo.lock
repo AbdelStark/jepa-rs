@@ -2502,7 +2502,12 @@ name = "jepa-train"
 version = "0.1.0"
 dependencies = [
  "burn",
+ "burn-ndarray",
  "jepa-core",
+ "log",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2510,7 +2515,13 @@ name = "jepa-vision"
 version = "0.1.0"
 dependencies = [
  "burn",
+ "burn-ndarray",
  "jepa-core",
+ "proptest",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2518,7 +2529,9 @@ name = "jepa-world"
 version = "0.1.0"
 dependencies = [
  "burn",
+ "burn-ndarray",
  "jepa-core",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
