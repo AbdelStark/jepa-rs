@@ -13,26 +13,26 @@
 
 ---
 
-Production-quality Rust implementation of **JEPA** (Joint Embedding Predictive Architecture) — the self-supervised learning framework from [Yann LeCun and Meta AI](https://openreview.net/pdf?id=BZ5a1r-kVsf) for learning world models that predict in representation space rather than pixel space.
+Alpha Rust implementation of **JEPA** (Joint Embedding Predictive Architecture) — the self-supervised learning framework from [Yann LeCun and Meta AI](https://openreview.net/pdf?id=BZ5a1r-kVsf) for learning world models that predict in representation space rather than pixel space.
 
-**jepa-rs** provides modular, backend-agnostic building blocks for I-JEPA (images), V-JEPA (video), and hierarchical world models, built on top of the [burn](https://burn.dev) deep learning framework. It includes full ONNX runtime support for inference with pretrained Facebook Research models.
+**jepa-rs** provides modular, backend-agnostic building blocks for I-JEPA (images), V-JEPA (video), and hierarchical world models, built on top of the [burn](https://burn.dev) deep learning framework. It includes a CLI and interactive TUI dashboard, safetensors checkpoint loading, ONNX metadata inspection, and a pretrained model registry for Facebook Research models.
 
 ```
                     ┌──────────────┐
                     │   Context    │──── Encoder ────┐
                     │   (visible)  │                 │
-   Image/Video ────┤              │         ┌───────▼───────┐
+   Image/Video ─────┤              │         ┌───────▼───────┐
                     │   Target     │         │   Predictor   │──── predicted repr
                     │   (masked)   │──┐      └───────────────┘          │
                     └──────────────┘  │                                 │
                                       │      ┌───────────────┐         │
                                       └──────│ Target Encoder│── target repr
                                         EMA  │   (frozen)    │         │
-                                              └───────────────┘         │
+                                             └───────────────┘          │
                                                                         │
-                                              ┌───────────────┐         │
-                                              │  Energy Loss  │◄────────┘
-                                              └───────────────┘
+                                             ┌───────────────┐          │
+                                             │  Energy Loss  │◄─────────┘
+                                             └───────────────┘
 ```
 
 ## Why jepa-rs?
@@ -40,7 +40,7 @@ Production-quality Rust implementation of **JEPA** (Joint Embedding Predictive A
 | | jepa-rs | Python (PyTorch) |
 |---|---|---|
 | **Runtime** | Native binary, no Python/CUDA dependency | Requires Python + PyTorch + CUDA |
-| **Inference** | ONNX via tract (CPU/GPU), zero-copy | PyTorch runtime |
+| **Inference** | Safetensors checkpoint loading, ONNX metadata | PyTorch runtime |
 | **Memory** | Rust ownership, no GC pauses | Python GC + PyTorch allocator |
 | **Backend** | Any burn backend (CPU, GPU, WebGPU, WASM) | CUDA-centric |
 | **Type safety** | Compile-time tensor shape checks | Runtime shape errors |
@@ -71,46 +71,31 @@ jepa-vision = { git = "https://github.com/AbdelStark/jepa-rs" }
 jepa-compat = { git = "https://github.com/AbdelStark/jepa-rs" }  # For ONNX + checkpoint loading
 ```
 
-### ONNX Inference with Pretrained Models
+### CLI
 
-The fastest path to running a real JEPA model:
-
-```bash
-# 1. Export a pretrained I-JEPA model to ONNX (requires Python + PyTorch)
-pip install torch onnx
-python scripts/export_ijepa_onnx.py --model vit_h14
-
-# 2. Run inference in Rust
-cargo run -p jepa-compat --example onnx_inference -- ijepa_vit_h14_encoder.onnx
-```
-
-Or create a tiny test model (no GPU needed):
+The `jepa` binary provides a unified CLI for the workspace:
 
 ```bash
-python scripts/export_ijepa_onnx.py --tiny-test
-cargo run -p jepa-compat --example onnx_inference -- ijepa_tiny_test.onnx
-```
+# Install the CLI
+cargo install --path crates/jepa
 
-### ONNX Inference from Rust
+# Launch the interactive TUI dashboard
+jepa
 
-```rust
-use jepa_compat::runtime::OnnxSession;
+# List pretrained models in the registry
+jepa models
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load an exported ONNX model
-    let session = OnnxSession::from_path("ijepa_vit_h14_encoder.onnx")?;
-    println!("Model: {:?}", session.info());
+# Inspect a safetensors checkpoint
+jepa inspect model.safetensors
 
-    // Prepare input: [batch=1, channels=3, height=224, width=224]
-    let input = vec![0.0f32; 1 * 3 * 224 * 224];
-    let output = session.run_f32(&[1, 3, 224, 224], &input)?;
+# Analyze checkpoint with key remapping
+jepa checkpoint model.safetensors --keymap ijepa --verbose
 
-    // Output: [1, 256, 1280] — 256 patch tokens, 1280-dim embeddings
-    if let Some((data, tokens, embed_dim)) = output.as_token_embeddings() {
-        println!("Got {} token embeddings of dim {}", tokens, embed_dim);
-    }
-    Ok(())
-}
+# Launch a training run
+jepa train --preset vit-base-16 --steps 1000 --lr 1e-3
+
+# Encode inputs through a model
+jepa encode --model model.safetensors --preset vit-base-16
 ```
 
 ### Loading SafeTensors Checkpoints
@@ -225,69 +210,36 @@ jepa-rs/
 │   ├── JepaComponents   Generic forward step orchestration
 │   └── CheckpointMeta   Save/resume metadata
 │
-└── jepa-compat      Model compatibility and ONNX runtime
-    ├── OnnxSession      Full ONNX inference via tract engine
-    ├── ModelRegistry     Pretrained model catalog (Facebook Research)
-    ├── SafeTensors       Load .safetensors checkpoints
-    ├── KeyMap            PyTorch → burn key remapping
-    └── OnnxModelInfo     ONNX metadata inspection
+├── jepa-compat      Model compatibility and interop
+│   ├── ModelRegistry     Pretrained model catalog (Facebook Research)
+│   ├── SafeTensors       Load .safetensors checkpoints
+│   ├── KeyMap            PyTorch → burn key remapping
+│   └── OnnxModelInfo     ONNX metadata inspection and initializer loading
+│
+└── jepa             CLI and interactive TUI dashboard
+    ├── CLI               models, inspect, checkpoint, train, encode commands
+    └── TUI               Dashboard, Models, Training, Checkpoint, About tabs
 ```
 
 All tensor-bearing APIs are generic over `B: Backend`, allowing transparent execution on CPU (NdArray), GPU (WGPU), or WebAssembly backends.
 
-## ONNX Runtime Support
+## ONNX Support
 
-jepa-rs includes a complete ONNX inference pipeline powered by [tract](https://github.com/sonos/tract):
+jepa-rs provides ONNX metadata inspection and initializer loading through `jepa-compat`. This allows inspecting model structure, input/output specs, and importing weight initializers from `.onnx` files.
 
-```text
-PyTorch Model (.pth)
-        │
-        ▼  scripts/export_ijepa_onnx.py
-  ONNX Model (.onnx)
-        │
-        ▼  jepa_compat::runtime::OnnxSession
-  Rust Inference (tract)
-        │
-        ▼
-  Token Embeddings [B, N, D]
-```
-
-### Supported operations
-
-- **Model loading**: Parse and optimize ONNX graphs
-- **Shape inference**: Automatic or manual input shape specification
-- **Execution**: Full forward pass through transformer encoder
-- **Output extraction**: Token embeddings as flat f32 arrays
-- **Model inspection**: Metadata, input/output specs, validation diagnostics
-
-### Export workflow
-
-```bash
-# Install Python dependencies
-pip install torch onnx
-
-# Export ViT-H/14 (downloads ~2.5GB checkpoint automatically)
-python scripts/export_ijepa_onnx.py --model vit_h14
-
-# Export ViT-G/16 (1B parameter model)
-python scripts/export_ijepa_onnx.py --model vit_g16
-
-# Verify with onnxruntime
-python scripts/export_ijepa_onnx.py --model vit_h14 --verify
-
-# Create tiny model for testing (no downloads needed)
-python scripts/export_ijepa_onnx.py --tiny-test
-```
+**Current scope**: metadata inspection and weight import only. Full ONNX graph execution is not yet implemented.
 
 ## Examples
 
 | Example | Description | Run command |
 |---------|-------------|-------------|
+| `jepa` | Interactive TUI dashboard | `cargo run -p jepa` |
+| `jepa models` | Browse pretrained model registry | `cargo run -p jepa -- models` |
+| `jepa train` | Launch a training run | `cargo run -p jepa -- train --preset vit-base-16` |
 | `ijepa_demo` | Full I-JEPA forward pass pipeline | `cargo run -p jepa-vision --example ijepa_demo` |
 | `ijepa_train_loop` | Training loop with metrics | `cargo run -p jepa-vision --example ijepa_train_loop` |
 | `world_model_planning` | World model with random shooting | `cargo run -p jepa-world --example world_model_planning` |
-| `onnx_inference` | ONNX model inference | `cargo run -p jepa-compat --example onnx_inference -- model.onnx` |
-| `model_registry` | Browse pretrained models | `cargo run -p jepa-compat --example model_registry` |
+| `model_registry` | Browse pretrained models (library) | `cargo run -p jepa-compat --example model_registry` |
 
 ## Build & Test
 
@@ -336,8 +288,10 @@ cargo bench --workspace --no-run
 ### What works
 
 - Complete I-JEPA and V-JEPA architectures with strict masked-encoder paths
-- Full ONNX inference runtime for pretrained Facebook Research models
+- CLI with 6 commands (`models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`)
+- Interactive TUI dashboard with 5 tabs (Dashboard, Models, Training, Checkpoint, About)
 - SafeTensors checkpoint loading with automatic key remapping
+- ONNX metadata inspection and initializer loading
 - Pretrained model registry with download URLs
 - Differential parity tests against 3 checked-in strict image fixtures
 - Comprehensive test suite (400+ tests), property-based testing, fuzz targets
@@ -346,6 +300,7 @@ cargo bench --workspace --no-run
 ### Known limitations
 
 - The generic trainer slices tokens after encoder forward; strict pre-attention masking is available via `IJepa::forward_step_strict` and `VJepa::forward_step_strict`
+- ONNX support covers metadata inspection and initializer loading only, not graph execution
 - Differential parity runs in CI for strict image fixtures; broader video parity is pending
 - Workspace crates not yet published to crates.io (depends on git for now)
 

@@ -120,6 +120,7 @@ cargo package -p jepa-vision --no-verify --exclude-lockfile
 cargo package -p jepa-world --no-verify --exclude-lockfile
 cargo package -p jepa-train --no-verify --exclude-lockfile
 cargo package -p jepa-compat --no-verify --exclude-lockfile
+cargo package -p jepa --no-verify --exclude-lockfile
 ```
 
 Policy:

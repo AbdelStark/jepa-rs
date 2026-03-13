@@ -26,7 +26,7 @@ All release-blocking checks must pass before submitting a PR.
 
 ## Architecture
 
-The project is organized as a Cargo workspace with 5 crates:
+The project is organized as a Cargo workspace with 6 crates:
 
 | Crate | Purpose |
 |-------|---------|
@@ -34,7 +34,8 @@ The project is organized as a Cargo workspace with 5 crates:
 | `jepa-vision` | Vision Transformer (ViT), patch embedding, RoPE, I-JEPA, V-JEPA |
 | `jepa-world` | World model, action conditioning, CEM planner, H-JEPA, memory |
 | `jepa-train` | Training loop, LR schedulers, checkpointing |
-| `jepa-compat` | PyTorch/safetensors weight loading, ONNX import |
+| `jepa-compat` | PyTorch/safetensors weight loading, ONNX metadata inspection |
+| `jepa` | CLI binary and interactive TUI dashboard |
 
 All crates depend on `jepa-core`. There are no circular dependencies.
 
@@ -58,7 +59,7 @@ All crates depend on `jepa-core`. There are no circular dependencies.
 Format: `type(scope): description`
 
 - **Types**: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
-- **Scopes**: `core`, `vision`, `world`, `train`, `compat`, `specs`
+- **Scopes**: `core`, `vision`, `world`, `train`, `compat`, `cli`, `specs`
 - Example: `feat(core): implement EnergyFn trait with L2 and cosine variants`
 
 ## Reference

@@ -4,7 +4,7 @@
 
 This document is the working gap register for taking `jepa-rs` from its current alpha state to a production-grade JEPA framework in Rust.
 
-As of March 12, 2026, the workspace is useful for local experimentation and extension work, and the release-candidate verification surface is materially stronger than it was at the start of this cycle. It is still not production-grade yet.
+As of March 13, 2026, the workspace is useful for local experimentation and extension work, and the release-candidate verification surface is materially stronger than it was at the start of this cycle. It is still not production-grade yet.
 
 ## Target Bar
 

@@ -180,9 +180,9 @@ fn draw_dashboard(f: &mut Frame, area: Rect, app: &App) {
         f,
         card_chunks[0],
         "Crates",
-        "5",
+        "6",
         BLUE,
-        "core vision world train compat",
+        "core vision world train compat cli",
     );
     draw_status_card(
         f,
@@ -267,9 +267,14 @@ fn draw_dashboard(f: &mut Frame, area: Rect, app: &App) {
             Span::styled(" ── training, schedules", Style::default().fg(SUBTEXT)),
         ]),
         Line::from(vec![
-            Span::styled("  └─", Style::default().fg(SURFACE1)),
+            Span::styled("  ├─", Style::default().fg(SURFACE1)),
             Span::styled(" jepa-compat", Style::default().fg(PINK)),
             Span::styled(" ── safetensors, ONNX", Style::default().fg(SUBTEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("  └─", Style::default().fg(SURFACE1)),
+            Span::styled(" jepa       ", Style::default().fg(LAVENDER)),
+            Span::styled(" ── CLI + TUI dashboard", Style::default().fg(SUBTEXT)),
         ]),
     ];
 
@@ -844,7 +849,7 @@ fn draw_about(f: &mut Frame, area: Rect, _app: &App) {
             Span::styled("   ◆ ", Style::default().fg(PINK)),
             Span::styled("jepa-compat  ", Style::default().fg(PINK)),
             Span::styled(
-                "Safetensors loading, ONNX metadata/runtime,",
+                "Safetensors loading, ONNX metadata,",
                 Style::default().fg(SUBTEXT),
             ),
         ]),
@@ -852,6 +857,22 @@ fn draw_about(f: &mut Frame, area: Rect, _app: &App) {
             Span::styled("                  ", Style::default().fg(PINK)),
             Span::styled(
                 "pretrained model registry, key remapping",
+                Style::default().fg(SUBTEXT),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("   ◆ ", Style::default().fg(LAVENDER)),
+            Span::styled("jepa         ", Style::default().fg(LAVENDER)),
+            Span::styled(
+                "CLI binary with 6 subcommands,",
+                Style::default().fg(SUBTEXT),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("                  ", Style::default().fg(LAVENDER)),
+            Span::styled(
+                "interactive TUI dashboard with 5 tabs",
                 Style::default().fg(SUBTEXT),
             ),
         ]),
