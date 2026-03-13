@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **jepa-compat**: Safetensors checkpoint loading and conversion — RFC-011
 - **jepa-compat**: I-JEPA/V-JEPA key mapping patterns — RFC-011
 - CI workflow with check, test, clippy, fmt, and doc jobs
-- 267 unit/integration tests + 23 doc tests across all crates
+- 365 unit/integration tests + doc tests across all crates
 - Property-based tests with proptest for numerical invariants
 - Criterion benchmarks for core and vision crates
 - 3 runnable examples (I-JEPA demo, training loop, world model planning)

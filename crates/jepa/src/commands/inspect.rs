@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::cli::InspectArgs;
+use crate::fmt_utils::truncate;
 
 pub fn run(args: InspectArgs) -> Result<()> {
     let path = &args.path;
@@ -126,14 +127,6 @@ fn inspect_onnx(path: &Path) -> Result<()> {
     println!();
 
     Ok(())
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max - 3])
-    }
 }
 
 fn truncate_path(p: &Path, max: usize) -> String {

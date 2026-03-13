@@ -82,6 +82,7 @@ pub enum PlanningError {
 /// let dims = energy.value.dims();
 /// assert_eq!(dims, [1]);
 /// ```
+#[derive(Debug, Clone, Copy)]
 pub struct L2Cost;
 
 impl L2Cost {
@@ -248,6 +249,19 @@ impl RandomShootingConfig {
 /// refit, preventing the search from collapsing to a single point.
 const MIN_CEM_STD: f64 = 0.01;
 
+/// Convert a sequence of f64 action values into an [`Action`] tensor.
+fn action_from_floats<B: Backend>(
+    values: &[f64],
+    action_dim: usize,
+    device: &B::Device,
+) -> Action<B> {
+    let data: Vec<f32> = values.iter().map(|&v| v as f32).collect();
+    Action::new(Tensor::from_floats(
+        burn::tensor::TensorData::new(data, [1, action_dim]),
+        device,
+    ))
+}
+
 /// Random-shooting planner (Cross-Entropy Method).
 ///
 /// Optimizes action sequences by:
@@ -259,6 +273,7 @@ const MIN_CEM_STD: f64 = 0.01;
 ///
 /// This is a zeroth-order optimization method that works with any backend
 /// (no autodiff required).
+#[derive(Debug, Clone)]
 pub struct RandomShootingPlanner {
     /// Planner configuration.
     pub config: RandomShootingConfig,
@@ -377,13 +392,7 @@ impl RandomShootingPlanner {
                 .map(|(i, candidate)| {
                     let actions: Vec<Action<B>> = candidate
                         .iter()
-                        .map(|a| {
-                            let data: Vec<f32> = a.iter().map(|&v| v as f32).collect();
-                            Action::new(Tensor::from_floats(
-                                burn::tensor::TensorData::new(data, [1, action_dim]),
-                                &device,
-                            ))
-                        })
+                        .map(|a| action_from_floats(a, action_dim, &device))
                         .collect();
 
                     let cost: f32 = world_model
@@ -407,13 +416,7 @@ impl RandomShootingPlanner {
                 let best_idx = costs[0].0;
                 best_actions = candidates[best_idx]
                     .iter()
-                    .map(|a: &Vec<f64>| {
-                        let data: Vec<f32> = a.iter().map(|&v| v as f32).collect();
-                        Action::new(Tensor::from_floats(
-                            burn::tensor::TensorData::new(data, [1, action_dim]),
-                            &device,
-                        ))
-                    })
+                    .map(|a| action_from_floats(a, action_dim, &device))
                     .collect();
             }
             cost_history.push(best_cost);

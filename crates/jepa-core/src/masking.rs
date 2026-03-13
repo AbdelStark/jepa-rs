@@ -19,9 +19,41 @@
 //! All strategies guarantee disjoint, non-empty context and target sets
 //! (see [`MaskSpec::validate`](crate::types::MaskSpec::validate)).
 
+use std::collections::HashSet;
+
 use rand::{Rng, RngExt as _};
 
 use crate::types::{InputShape, MaskSpec};
+
+/// Build a [`MaskSpec`] from a set of target indices, guaranteeing non-empty
+/// context and target partitions.
+///
+/// If `target_set` covers all tokens, one arbitrary target is moved to context.
+/// If `target_set` is empty, one random token is selected as a target.
+fn finalize_mask(mut target_set: HashSet<usize>, total: usize, rng: &mut impl Rng) -> MaskSpec {
+    // Ensure non-empty context
+    if target_set.len() >= total {
+        if let Some(&first) = target_set.iter().next() {
+            target_set.remove(&first);
+        }
+    }
+    // Ensure non-empty target
+    if target_set.is_empty() {
+        target_set.insert(rng.random_range(0..total));
+    }
+
+    let mut target_indices: Vec<usize> = target_set.into_iter().collect();
+    target_indices.sort_unstable();
+
+    let target_lookup: HashSet<usize> = target_indices.iter().copied().collect();
+    let context_indices: Vec<usize> = (0..total).filter(|i| !target_lookup.contains(i)).collect();
+
+    MaskSpec {
+        context_indices,
+        target_indices,
+        total_tokens: total,
+    }
+}
 
 /// Trait for masking strategies.
 ///
@@ -65,6 +97,7 @@ pub trait MaskingStrategy {
 /// Masks one or more contiguous rectangular blocks as targets,
 /// with the remaining patches as context. This forces the model
 /// to predict large semantic regions from partial observations.
+#[derive(Debug, Clone)]
 pub struct BlockMasking {
     /// Number of target blocks to mask.
     pub num_targets: usize,
@@ -86,7 +119,7 @@ impl MaskingStrategy for BlockMasking {
         };
         let total = height * width;
 
-        let mut target_set = std::collections::HashSet::new();
+        let mut target_set = HashSet::new();
 
         for _ in 0..self.num_targets {
             // Sample scale and aspect ratio
@@ -118,27 +151,7 @@ impl MaskingStrategy for BlockMasking {
             }
         }
 
-        // Ensure we have at least one context token
-        if target_set.len() >= total {
-            if let Some(&first) = target_set.iter().next() {
-                target_set.remove(&first);
-            }
-        }
-
-        let mut target_indices: Vec<usize> = target_set.into_iter().collect();
-        target_indices.sort_unstable();
-
-        let target_set_lookup: std::collections::HashSet<usize> =
-            target_indices.iter().copied().collect();
-        let context_indices: Vec<usize> = (0..total)
-            .filter(|i| !target_set_lookup.contains(i))
-            .collect();
-
-        MaskSpec {
-            context_indices,
-            target_indices,
-            total_tokens: total,
-        }
+        finalize_mask(target_set, total, rng)
     }
 }
 
@@ -146,6 +159,7 @@ impl MaskingStrategy for BlockMasking {
 ///
 /// Masks contiguous 3D regions in space and time, forcing the model
 /// to predict temporal dynamics and spatial structure jointly.
+#[derive(Debug, Clone)]
 pub struct SpatiotemporalMasking {
     /// Number of target tubes to mask.
     pub num_targets: usize,
@@ -168,7 +182,7 @@ impl MaskingStrategy for SpatiotemporalMasking {
         let total = frames * height * width;
         let frame_area = height * width;
 
-        let mut target_set = std::collections::HashSet::new();
+        let mut target_set = HashSet::new();
 
         for _ in 0..self.num_targets {
             // Sample temporal extent
@@ -196,33 +210,14 @@ impl MaskingStrategy for SpatiotemporalMasking {
             }
         }
 
-        // Ensure non-empty context
-        if target_set.len() >= total {
-            if let Some(&first) = target_set.iter().next() {
-                target_set.remove(&first);
-            }
-        }
-
-        let mut target_indices: Vec<usize> = target_set.into_iter().collect();
-        target_indices.sort_unstable();
-
-        let target_set_lookup: std::collections::HashSet<usize> =
-            target_indices.iter().copied().collect();
-        let context_indices: Vec<usize> = (0..total)
-            .filter(|i| !target_set_lookup.contains(i))
-            .collect();
-
-        MaskSpec {
-            context_indices,
-            target_indices,
-            total_tokens: total,
-        }
+        finalize_mask(target_set, total, rng)
     }
 }
 
 /// Multi-block masking (V-JEPA 2 style).
 ///
 /// Masks multiple blocks with specific constraints on total coverage ratio.
+#[derive(Debug, Clone)]
 pub struct MultiBlockMasking {
     /// Target masking ratio (fraction of tokens masked).
     pub mask_ratio: f64,
@@ -244,7 +239,7 @@ impl MaskingStrategy for MultiBlockMasking {
         let target_count = ((total as f64) * self.mask_ratio).round() as usize;
         let per_block = (target_count / self.num_blocks).max(1);
 
-        let mut target_set = std::collections::HashSet::new();
+        let mut target_set = HashSet::new();
 
         for _ in 0..self.num_blocks {
             let block_side = (per_block as f64).sqrt().round() as usize;
@@ -261,31 +256,7 @@ impl MaskingStrategy for MultiBlockMasking {
             }
         }
 
-        // Ensure non-empty context
-        if target_set.len() >= total {
-            if let Some(&first) = target_set.iter().next() {
-                target_set.remove(&first);
-            }
-        }
-        // Ensure non-empty target
-        if target_set.is_empty() {
-            target_set.insert(rng.random_range(0..total));
-        }
-
-        let mut target_indices: Vec<usize> = target_set.into_iter().collect();
-        target_indices.sort_unstable();
-
-        let target_set_lookup: std::collections::HashSet<usize> =
-            target_indices.iter().copied().collect();
-        let context_indices: Vec<usize> = (0..total)
-            .filter(|i| !target_set_lookup.contains(i))
-            .collect();
-
-        MaskSpec {
-            context_indices,
-            target_indices,
-            total_tokens: total,
-        }
+        finalize_mask(target_set, total, rng)
     }
 }
 

@@ -213,7 +213,7 @@ impl MaskSpec {
 }
 
 /// Errors related to mask validation.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum MaskError {
     #[error("context indices are empty, need at least one visible token")]
     EmptyContext,

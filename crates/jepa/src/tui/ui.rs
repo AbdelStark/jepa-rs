@@ -9,9 +9,9 @@ use ratatui::widgets::{
 use ratatui::Frame;
 
 use super::app::{App, Tab, TrainingState};
+use crate::fmt_utils::format_params;
 
 // Color palette — Catppuccin Mocha
-#[allow(dead_code)]
 const LAVENDER: Color = Color::Rgb(180, 190, 254);
 const MAUVE: Color = Color::Rgb(203, 166, 247);
 const PINK: Color = Color::Rgb(245, 194, 231);
@@ -995,16 +995,4 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
     );
 
     f.render_widget(help, overlay_area);
-}
-
-fn format_params(count: usize) -> String {
-    if count >= 1_000_000_000 {
-        format!("{:.1}B", count as f64 / 1e9)
-    } else if count >= 1_000_000 {
-        format!("{:.0}M", count as f64 / 1e6)
-    } else if count >= 1_000 {
-        format!("{:.0}K", count as f64 / 1e3)
-    } else {
-        format!("{count}")
-    }
 }

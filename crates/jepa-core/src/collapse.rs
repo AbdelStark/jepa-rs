@@ -89,6 +89,7 @@ impl<B: Backend> VICRegLoss<B> {
 /// let scalar_loss: f32 = vicreg.loss(&z_a, &z_b).into_scalar().elem();
 /// assert!(scalar_loss.is_finite());
 /// ```
+#[derive(Debug, Clone)]
 pub struct VICReg {
     /// Weight for the invariance term (default: 25.0).
     pub lambda_inv: f64,
@@ -202,6 +203,7 @@ impl<B: Backend> CollapseRegularizer<B> for VICReg {
 ///
 /// Reference: Zbontar et al. (2021), "Barlow Twins: Self-Supervised Learning via
 /// Redundancy Reduction", ICML.
+#[derive(Debug, Clone)]
 pub struct BarlowTwins {
     /// Weight for the off-diagonal (redundancy reduction) term (default: 0.005).
     ///

@@ -6,6 +6,7 @@ use jepa_core::Encoder;
 use jepa_vision::vit::VitConfig;
 
 use crate::cli::{ArchPreset, EncodeArgs};
+use crate::fmt_utils::truncate;
 
 type B = NdArray<f32>;
 const DEVICE: burn_ndarray::NdArrayDevice = burn_ndarray::NdArrayDevice::Cpu;
@@ -183,12 +184,4 @@ fn run_burn(args: EncodeArgs) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max - 3])
-    }
 }

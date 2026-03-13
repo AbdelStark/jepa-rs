@@ -57,6 +57,7 @@ use burn::tensor::Tensor;
 /// assert!((ema_scheduled.get_momentum(0) - 0.996).abs() < 1e-6);
 /// assert!((ema_scheduled.get_momentum(9999) - 1.0).abs() < 1e-3);
 /// ```
+#[derive(Debug, Clone)]
 pub struct Ema {
     /// Base momentum parameter. Typical values: 0.996 to 0.9999.
     pub momentum: f64,

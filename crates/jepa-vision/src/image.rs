@@ -140,7 +140,7 @@ pub struct TransformerPredictor<B: Backend> {
 }
 
 /// Errors returned by [`TransformerPredictor::try_predict`].
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum PredictorError {
     #[error(
         "target position batch size mismatch: context batch={context_batch}, target_positions batch={positions_batch}"
@@ -387,7 +387,7 @@ pub struct IJepa<B: Backend> {
 /// Unlike the generic trainer helper, the context representation is produced
 /// from visible tokens only, so hidden target patches never participate in
 /// context self-attention.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StrictIJepaForwardOutput<B: Backend> {
     /// Prediction energy (main loss signal). Shape: `[1]`
     pub energy: Energy<B>,
@@ -406,7 +406,7 @@ pub struct StrictIJepaForwardOutput<B: Backend> {
 }
 
 /// Errors returned by [`IJepa::try_forward_step_strict`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum StrictIJepaError {
     #[error(transparent)]
     InvalidMask(#[from] MaskError),

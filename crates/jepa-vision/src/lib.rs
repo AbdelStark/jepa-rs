@@ -44,5 +44,6 @@
 pub mod image;
 pub mod patch;
 pub mod rope;
+pub(crate) mod token_ops;
 pub mod video;
 pub mod vit;

@@ -62,6 +62,7 @@ pub trait EnergyFn<B: Backend> {
 ///
 /// Computes the mean squared error between predicted and actual
 /// representations, averaged over all dimensions.
+#[derive(Debug, Clone, Copy)]
 pub struct L2Energy;
 
 impl<B: Backend> EnergyFn<B> for L2Energy {
@@ -79,6 +80,7 @@ impl<B: Backend> EnergyFn<B> for L2Energy {
 ///
 /// Computes `1 - cosine_similarity` so that identical representations
 /// yield energy ≈ 0 and orthogonal representations yield energy ≈ 1.
+#[derive(Debug, Clone, Copy)]
 pub struct CosineEnergy;
 
 impl<B: Backend> EnergyFn<B> for CosineEnergy {
@@ -119,6 +121,7 @@ impl<B: Backend> EnergyFn<B> for CosineEnergy {
 ///
 /// Behaves as L2 for small differences (< beta) and L1 for large differences.
 /// This makes it less sensitive to outliers than pure L2.
+#[derive(Debug, Clone, Copy)]
 pub struct SmoothL1Energy {
     /// Threshold below which the loss is L2-like.
     pub beta: f64,

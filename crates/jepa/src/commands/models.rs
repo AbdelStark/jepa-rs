@@ -3,6 +3,7 @@ use anyhow::Result;
 use jepa_compat::registry::{self, ModelFamily};
 
 use crate::cli::{ModelFamilyFilter, ModelsArgs};
+use crate::fmt_utils::format_params;
 
 pub fn run(args: ModelsArgs) -> Result<()> {
     let all_models = registry::list_models();
@@ -74,16 +75,4 @@ pub fn run(args: ModelsArgs) -> Result<()> {
     println!();
 
     Ok(())
-}
-
-fn format_params(count: usize) -> String {
-    if count >= 1_000_000_000 {
-        format!("{:.1}B", count as f64 / 1e9)
-    } else if count >= 1_000_000 {
-        format!("{:.0}M", count as f64 / 1e6)
-    } else if count >= 1_000 {
-        format!("{:.0}K", count as f64 / 1e3)
-    } else {
-        format!("{count}")
-    }
 }
