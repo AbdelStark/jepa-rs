@@ -122,6 +122,38 @@ omitted. Dataset loading is currently single-threaded.
 `jepa encode` executes real encoder weights for `.safetensors` and `.onnx`
 inputs; other extensions still fall back to the preset demo path.
 
+### Runnable Examples
+
+The `jepa` crate now ships runnable examples under
+`crates/jepa/examples/` that exercise the real training command instead of
+mocking the CLI path:
+
+```bash
+# Create a tiny recursive image-folder dataset under target/example-data/jepa/
+cargo run -p jepa --example prepare_demo_image_folder
+
+# Train for 2 steps on that generated image-folder dataset
+cargo run -p jepa --example train_image_folder_demo
+
+# Train for 2 steps with the synthetic fallback path
+cargo run -p jepa --example train_synthetic_demo
+```
+
+The image-folder example deliberately uses a very small generated dataset
+(6 PNG files across nested subdirectories). That is enough for a meaningful
+smoke demo of recursive dataset discovery, decode, resize, crop, normalize,
+batching, masking, optimizer updates, and EMA without checking a large image
+corpus into git. It is not large enough to demonstrate real representation
+learning quality; it is an execution demo, not a benchmark dataset.
+
+If you want to run the CLI directly after generating the demo dataset:
+
+```bash
+cargo run -p jepa -- train --preset vit-small-16 --steps 2 --batch-size 2 \
+  --dataset-dir target/example-data/jepa/demo-image-folder \
+  --resize 256 --crop-size 224 --shuffle --dataset-limit 6
+```
+
 ### Loading SafeTensors Checkpoints
 
 ```rust
@@ -260,6 +292,9 @@ jepa-rs provides ONNX metadata inspection and initializer loading through `jepa-
 | `jepa` | Interactive TUI dashboard | `cargo run -p jepa` |
 | `jepa models` | Browse pretrained model registry | `cargo run -p jepa -- models` |
 | `jepa train` | Launch a training run | `cargo run -p jepa -- train --preset vit-base-16` |
+| `prepare_demo_image_folder` | Generate a tiny recursive dataset for `--dataset-dir` demos | `cargo run -p jepa --example prepare_demo_image_folder` |
+| `train_image_folder_demo` | Run the real `jepa train` image-folder path on generated images | `cargo run -p jepa --example train_image_folder_demo` |
+| `train_synthetic_demo` | Run the real `jepa train` synthetic fallback path | `cargo run -p jepa --example train_synthetic_demo` |
 | `ijepa_demo` | Full I-JEPA forward pass pipeline | `cargo run -p jepa-vision --example ijepa_demo` |
 | `ijepa_train_loop` | Training loop with metrics | `cargo run -p jepa-vision --example ijepa_train_loop` |
 | `world_model_planning` | World model with random shooting | `cargo run -p jepa-world --example world_model_planning` |
