@@ -179,6 +179,16 @@ pub fn load_checkpoint(
     load_checkpoint_from_bytes(&data, mappings)
 }
 
+/// Load every tensor from a safetensors checkpoint without key remapping.
+///
+/// The returned checkpoint preserves the original safetensors names as both
+/// `original_key` and `burn_key`, which is useful for burn-native checkpoints
+/// and tensor datasets.
+pub fn load_raw_checkpoint(path: impl AsRef<Path>) -> Result<Checkpoint, LoadError> {
+    let data = std::fs::read(path)?;
+    load_raw_checkpoint_from_bytes(&data)
+}
+
 /// Load a safetensors checkpoint from raw bytes.
 ///
 /// This is the core loading function. It parses the safetensors format,
@@ -220,6 +230,35 @@ pub fn load_checkpoint_from_bytes(
     Ok(Checkpoint {
         tensors,
         unmapped_keys,
+    })
+}
+
+/// Load every tensor from raw safetensors bytes without applying key remapping.
+pub fn load_raw_checkpoint_from_bytes(data: &[u8]) -> Result<Checkpoint, LoadError> {
+    let st =
+        safetensors::SafeTensors::deserialize(data).map_err(|e| LoadError::Parse(e.to_string()))?;
+
+    let mut tensors = HashMap::new();
+
+    for (key, view) in st.tensors() {
+        let shape: Vec<usize> = view.shape().to_vec();
+        let f32_data = convert_to_f32(view.dtype(), view.data())?;
+        let key = key.to_string();
+
+        tensors.insert(
+            key.clone(),
+            LoadedTensor {
+                data: f32_data,
+                shape,
+                original_key: key.clone(),
+                burn_key: key,
+            },
+        );
+    }
+
+    Ok(Checkpoint {
+        tensors,
+        unmapped_keys: Vec::new(),
     })
 }
 
@@ -488,6 +527,23 @@ mod tests {
         let ckpt = load_checkpoint_from_bytes(&data, &[]).unwrap();
         assert!(ckpt.is_empty());
         assert_eq!(ckpt.unmapped_keys.len(), 1);
+    }
+
+    #[test]
+    fn test_load_raw_checkpoint_preserves_original_keys() {
+        let data = create_test_safetensors(&[
+            ("images", &[2, 3, 4, 4], &[0.0f32; 2 * 3 * 4 * 4]),
+            ("labels", &[2], &[0.0f32; 2]),
+        ]);
+
+        let ckpt = load_raw_checkpoint_from_bytes(&data).unwrap();
+
+        assert_eq!(ckpt.len(), 2);
+        assert!(ckpt.unmapped_keys.is_empty());
+        assert!(ckpt.get("images").is_some());
+        assert!(ckpt.get("labels").is_some());
+        assert_eq!(ckpt.get("images").unwrap().original_key, "images");
+        assert_eq!(ckpt.get("images").unwrap().burn_key, "images");
     }
 
     #[test]

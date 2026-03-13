@@ -26,16 +26,36 @@
 //! - [`VitEncoder::forward_visible_tokens`] — encode only visible (context)
 //!   patches for efficient masked training.
 
-use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
+use std::collections::HashMap;
+
+use burn::module::{Module, Param};
+use burn::nn::{LayerNorm, LayerNormConfig, LayerNormRecord, Linear, LinearConfig, LinearRecord};
 use burn::prelude::*;
 use burn::tensor::backend::Backend;
+use burn::tensor::TensorData;
 
+use jepa_core::ema::Ema;
 use jepa_core::types::Representation;
 use jepa_core::Encoder;
 
 use crate::patch::{PatchEmbedding, PatchEmbeddingConfig};
 use crate::rope::{RotaryPositionEncoding2D, RotaryPositionEncoding2DConfig};
 use crate::token_ops::gather_token_sequence;
+
+/// Errors returned when loading a ViT encoder from named tensors.
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+pub enum VitLoadError {
+    #[error("missing checkpoint tensor `{0}`")]
+    MissingKey(String),
+    #[error(
+        "shape mismatch for `{key}`: checkpoint {checkpoint_shape:?} vs model {model_shape:?}"
+    )]
+    ShapeMismatch {
+        key: String,
+        checkpoint_shape: Vec<usize>,
+        model_shape: Vec<usize>,
+    },
+}
 
 /// Configuration for a Vision Transformer encoder.
 ///
@@ -308,6 +328,96 @@ impl<B: Backend> VitEncoder<B> {
         let x = gather_token_sequence(x, visible_indices);
         self.encode_positioned_tokens(x)
     }
+
+    /// Load a ViT encoder from a map of burn-style parameter names to tensor data.
+    ///
+    /// Expected parameter names match the burn module record layout, for example
+    /// `patch_embed.projection.weight` and `blocks.0.attn.out_proj.bias`.
+    pub fn load_named_tensors(
+        self,
+        tensors: &HashMap<String, TensorData>,
+    ) -> Result<Self, VitLoadError> {
+        let mut record = self.clone().into_record();
+
+        load_linear_record(
+            &mut record.patch_embed.projection,
+            "patch_embed.projection",
+            tensors,
+        )?;
+
+        for (index, block) in record.blocks.iter_mut().enumerate() {
+            load_layer_norm_record(&mut block.norm1, &format!("blocks.{index}.norm1"), tensors)?;
+            load_linear_record(
+                &mut block.attn.qkv,
+                &format!("blocks.{index}.attn.qkv"),
+                tensors,
+            )?;
+            load_linear_record(
+                &mut block.attn.out_proj,
+                &format!("blocks.{index}.attn.out_proj"),
+                tensors,
+            )?;
+            load_layer_norm_record(&mut block.norm2, &format!("blocks.{index}.norm2"), tensors)?;
+            load_linear_record(
+                &mut block.mlp.fc1,
+                &format!("blocks.{index}.mlp.fc1"),
+                tensors,
+            )?;
+            load_linear_record(
+                &mut block.mlp.fc2,
+                &format!("blocks.{index}.mlp.fc2"),
+                tensors,
+            )?;
+        }
+
+        load_layer_norm_record(&mut record.norm, "norm", tensors)?;
+
+        Ok(self.load_record(record))
+    }
+
+    /// Update this encoder toward an online encoder using EMA.
+    ///
+    /// The returned encoder preserves the gradient setting of the target
+    /// encoder parameters while detaching the blended tensors from any active
+    /// autodiff graph.
+    pub fn ema_update_from(self, online: &Self, ema: &Ema, step: usize) -> Self {
+        let mut target_record = self.clone().into_record();
+        let online_record = online.clone().into_record();
+
+        ema_update_linear_record(
+            &mut target_record.patch_embed.projection,
+            &online_record.patch_embed.projection,
+            ema,
+            step,
+        );
+
+        for (target_block, online_block) in target_record
+            .blocks
+            .iter_mut()
+            .zip(online_record.blocks.iter())
+        {
+            ema_update_layer_norm_record(&mut target_block.norm1, &online_block.norm1, ema, step);
+            ema_update_linear_record(
+                &mut target_block.attn.qkv,
+                &online_block.attn.qkv,
+                ema,
+                step,
+            );
+            ema_update_linear_record(
+                &mut target_block.attn.out_proj,
+                &online_block.attn.out_proj,
+                ema,
+                step,
+            );
+            ema_update_layer_norm_record(&mut target_block.norm2, &online_block.norm2, ema, step);
+            ema_update_linear_record(&mut target_block.mlp.fc1, &online_block.mlp.fc1, ema, step);
+            ema_update_linear_record(&mut target_block.mlp.fc2, &online_block.mlp.fc2, ema, step);
+        }
+
+        ema_update_layer_norm_record(&mut target_record.norm, &online_record.norm, ema, step);
+
+        self.load_record(target_record)
+    }
 }
 
 impl<B: Backend> Encoder<B> for VitEncoder<B> {
@@ -320,6 +430,106 @@ impl<B: Backend> Encoder<B> for VitEncoder<B> {
     fn embed_dim(&self) -> usize {
         self.embed_dim
     }
+}
+
+fn load_linear_record<B: Backend>(
+    record: &mut LinearRecord<B>,
+    prefix: &str,
+    tensors: &HashMap<String, TensorData>,
+) -> Result<(), VitLoadError> {
+    load_param_from_tensors(&mut record.weight, &format!("{prefix}.weight"), tensors)?;
+    load_optional_param_from_tensors(&mut record.bias, &format!("{prefix}.bias"), tensors)?;
+    Ok(())
+}
+
+fn load_layer_norm_record<B: Backend>(
+    record: &mut LayerNormRecord<B>,
+    prefix: &str,
+    tensors: &HashMap<String, TensorData>,
+) -> Result<(), VitLoadError> {
+    load_param_from_tensors(&mut record.gamma, &format!("{prefix}.weight"), tensors)?;
+    load_optional_param_from_tensors(&mut record.beta, &format!("{prefix}.bias"), tensors)?;
+    Ok(())
+}
+
+fn load_param_from_tensors<B: Backend, const D: usize>(
+    param: &mut Param<Tensor<B, D>>,
+    key: &str,
+    tensors: &HashMap<String, TensorData>,
+) -> Result<(), VitLoadError> {
+    let tensor = tensors
+        .get(key)
+        .ok_or_else(|| VitLoadError::MissingKey(key.to_string()))?;
+    let expected_shape = param.lazy_shape().dims;
+    if tensor.shape != expected_shape {
+        return Err(VitLoadError::ShapeMismatch {
+            key: key.to_string(),
+            checkpoint_shape: tensor.shape.clone(),
+            model_shape: expected_shape,
+        });
+    }
+
+    *param = param
+        .clone()
+        .load_record(Param::from_data(tensor.clone(), &param.lazy_device()));
+    Ok(())
+}
+
+fn load_optional_param_from_tensors<B: Backend, const D: usize>(
+    param: &mut Option<Param<Tensor<B, D>>>,
+    key: &str,
+    tensors: &HashMap<String, TensorData>,
+) -> Result<(), VitLoadError> {
+    let Some(inner) = param else {
+        return Ok(());
+    };
+
+    load_param_from_tensors(inner, key, tensors)
+}
+
+fn ema_update_linear_record<B: Backend>(
+    target: &mut LinearRecord<B>,
+    online: &LinearRecord<B>,
+    ema: &Ema,
+    step: usize,
+) {
+    ema_update_param(&mut target.weight, &online.weight, ema, step);
+    ema_update_optional_param(&mut target.bias, &online.bias, ema, step);
+}
+
+fn ema_update_layer_norm_record<B: Backend>(
+    target: &mut LayerNormRecord<B>,
+    online: &LayerNormRecord<B>,
+    ema: &Ema,
+    step: usize,
+) {
+    ema_update_param(&mut target.gamma, &online.gamma, ema, step);
+    ema_update_optional_param(&mut target.beta, &online.beta, ema, step);
+}
+
+fn ema_update_param<B: Backend, const D: usize>(
+    target: &mut Param<Tensor<B, D>>,
+    online: &Param<Tensor<B, D>>,
+    ema: &Ema,
+    step: usize,
+) {
+    let param_id = target.clone().consume().0;
+    let updated = ema.update_tensor(target.val().detach(), &online.val().detach(), step);
+    let record = Param::initialized(param_id, updated.detach());
+    *target = target.clone().load_record(record);
+}
+
+fn ema_update_optional_param<B: Backend, const D: usize>(
+    target: &mut Option<Param<Tensor<B, D>>>,
+    online: &Option<Param<Tensor<B, D>>>,
+    ema: &Ema,
+    step: usize,
+) {
+    let (Some(target), Some(online)) = (target, online) else {
+        return;
+    };
+
+    ema_update_param(target, online, ema, step);
 }
 
 // --- Transformer components ---
@@ -488,6 +698,7 @@ impl<B: Backend> Mlp<B> {
 mod tests {
     use super::*;
     use burn_ndarray::NdArray;
+    use std::collections::HashMap;
 
     type TestBackend = NdArray<f32>;
 
@@ -583,6 +794,156 @@ mod tests {
         let x: Tensor<TestBackend, 3> = Tensor::zeros([2, 8, 16], &device());
         let out = mlp.forward(x);
         assert_eq!(out.dims(), [2, 8, 16]);
+    }
+
+    fn checkpoint_tensors_from_encoder(
+        encoder: &VitEncoder<TestBackend>,
+    ) -> HashMap<String, TensorData> {
+        let record = encoder.clone().into_record();
+        let mut tensors = HashMap::new();
+
+        insert_linear_tensors(
+            &mut tensors,
+            "patch_embed.projection",
+            &record.patch_embed.projection,
+        );
+
+        for (index, block) in record.blocks.iter().enumerate() {
+            insert_layer_norm_tensors(&mut tensors, &format!("blocks.{index}.norm1"), &block.norm1);
+            insert_linear_tensors(
+                &mut tensors,
+                &format!("blocks.{index}.attn.qkv"),
+                &block.attn.qkv,
+            );
+            insert_linear_tensors(
+                &mut tensors,
+                &format!("blocks.{index}.attn.out_proj"),
+                &block.attn.out_proj,
+            );
+            insert_layer_norm_tensors(&mut tensors, &format!("blocks.{index}.norm2"), &block.norm2);
+            insert_linear_tensors(
+                &mut tensors,
+                &format!("blocks.{index}.mlp.fc1"),
+                &block.mlp.fc1,
+            );
+            insert_linear_tensors(
+                &mut tensors,
+                &format!("blocks.{index}.mlp.fc2"),
+                &block.mlp.fc2,
+            );
+        }
+
+        insert_layer_norm_tensors(&mut tensors, "norm", &record.norm);
+
+        tensors
+    }
+
+    fn insert_linear_tensors(
+        tensors: &mut HashMap<String, TensorData>,
+        prefix: &str,
+        record: &LinearRecord<TestBackend>,
+    ) {
+        tensors.insert(format!("{prefix}.weight"), record.weight.val().to_data());
+        if let Some(bias) = &record.bias {
+            tensors.insert(format!("{prefix}.bias"), bias.val().to_data());
+        }
+    }
+
+    fn insert_layer_norm_tensors(
+        tensors: &mut HashMap<String, TensorData>,
+        prefix: &str,
+        record: &LayerNormRecord<TestBackend>,
+    ) {
+        tensors.insert(format!("{prefix}.weight"), record.gamma.val().to_data());
+        if let Some(beta) = &record.beta {
+            tensors.insert(format!("{prefix}.bias"), beta.val().to_data());
+        }
+    }
+
+    #[test]
+    fn test_vit_encoder_load_named_tensors_restores_encoder_state() {
+        let config = VitConfig::tiny_test();
+        let source = config.init::<TestBackend>(&device());
+        let target = config.init::<TestBackend>(&device());
+        let tensors = checkpoint_tensors_from_encoder(&source);
+
+        let loaded = target
+            .load_named_tensors(&tensors)
+            .expect("loading tensors exported from a matching encoder should succeed");
+
+        let images: Tensor<TestBackend, 4> = Tensor::random(
+            [2, 1, 8, 8],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+
+        let source_repr = source.forward(&images);
+        let loaded_repr = loaded.forward(&images);
+        let diff: f32 = (source_repr.embeddings - loaded_repr.embeddings)
+            .abs()
+            .sum()
+            .into_scalar()
+            .elem();
+        assert!(
+            diff < 1e-6,
+            "loading the exported tensors should restore the encoder exactly, diff={diff}"
+        );
+    }
+
+    #[test]
+    fn test_vit_encoder_load_named_tensors_rejects_shape_mismatch() {
+        let config = VitConfig::tiny_test();
+        let encoder = config.init::<TestBackend>(&device());
+        let mut tensors = checkpoint_tensors_from_encoder(&encoder);
+        tensors.insert(
+            "norm.weight".to_string(),
+            TensorData::new(vec![1.0f32; 31], [31]),
+        );
+
+        let err = config
+            .init::<TestBackend>(&device())
+            .load_named_tensors(&tensors)
+            .expect_err("shape mismatch should be reported");
+
+        assert!(matches!(
+            err,
+            VitLoadError::ShapeMismatch { key, .. } if key == "norm.weight"
+        ));
+    }
+
+    #[test]
+    fn test_vit_encoder_ema_update_moves_target_toward_online() {
+        let config = VitConfig::tiny_test();
+        let target = config.init::<TestBackend>(&device());
+        let online = config.init::<TestBackend>(&device());
+        let ema = Ema::new(0.5);
+        let images: Tensor<TestBackend, 4> = Tensor::random(
+            [1, 1, 8, 8],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
+            &device(),
+        );
+
+        let target_before = target.forward(&images);
+        let online_before = online.forward(&images);
+        let updated = target.clone().ema_update_from(&online, &ema, 0);
+        let updated_repr = updated.forward(&images);
+
+        let before_distance: f32 = (target_before.embeddings.clone()
+            - online_before.embeddings.clone())
+        .abs()
+        .sum()
+        .into_scalar()
+        .elem();
+        let after_distance: f32 = (updated_repr.embeddings - online_before.embeddings)
+            .abs()
+            .sum()
+            .into_scalar()
+            .elem();
+
+        assert!(
+            after_distance < before_distance,
+            "EMA update should move target toward online encoder"
+        );
     }
 
     use burn::tensor::ElementConversion;

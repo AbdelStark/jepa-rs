@@ -92,16 +92,24 @@ jepa inspect model.safetensors
 jepa checkpoint model.safetensors --keymap ijepa --verbose
 
 # Launch a training run
-jepa train --preset vit-base-16 --steps 1000 --lr 1e-3
+jepa train --preset vit-base-16 --steps 10 --batch-size 1 --lr 1e-3
 
-# Encode inputs through an ONNX model
+# Train from a safetensors image tensor dataset [N, C, H, W]
+jepa train --preset vit-base-16 --steps 100 --batch-size 1 \
+  --dataset train.safetensors --dataset-key images
+
+# Encode inputs through a safetensors checkpoint
+jepa encode --model model.safetensors --preset vit-base-16
+
+# Or through an ONNX model
 jepa encode --model model.onnx --height 224 --width 224
 ```
 
-The CLI `train` command runs the strict masked image forward path on synthetic
-random data. The non-ONNX `encode` path remains a preset demo with
-random-initialized burn weights; real checkpoint inspection/loading is exposed
-through `jepa inspect` and `jepa checkpoint`.
+The CLI `train` command now runs real strict masked-image optimization with
+AdamW and EMA. Without `--dataset`, it uses synthetic random tensors; with
+`--dataset`, it trains on a safetensors image tensor shaped `[N, C, H, W]`.
+`jepa encode` executes real encoder weights for `.safetensors` and `.onnx`
+inputs; other extensions still fall back to the preset demo path.
 
 ### Loading SafeTensors Checkpoints
 

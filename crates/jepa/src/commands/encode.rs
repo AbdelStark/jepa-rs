@@ -1,7 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use burn::prelude::*;
 use burn_ndarray::NdArray;
 
+use jepa_compat::keymap::ijepa_vit_keymap;
+use jepa_compat::safetensors::Checkpoint;
 use jepa_core::Encoder;
 use jepa_vision::vit::VitConfig;
 
@@ -21,7 +23,8 @@ pub fn run(args: EncodeArgs) -> Result<()> {
 
     match ext.as_str() {
         "onnx" => run_onnx(args),
-        _ => run_burn(args),
+        "safetensors" => run_safetensors(args),
+        _ => run_demo(args),
     }
 }
 
@@ -107,7 +110,69 @@ fn run_onnx(args: EncodeArgs) -> Result<()> {
     Ok(())
 }
 
-fn run_burn(args: EncodeArgs) -> Result<()> {
+fn run_safetensors(args: EncodeArgs) -> Result<()> {
+    let vit_config = match args.preset {
+        ArchPreset::VitBase16 => VitConfig::vit_base_patch16(),
+        ArchPreset::VitSmall16 => VitConfig::vit_small_patch16(),
+        ArchPreset::VitLarge16 => VitConfig::vit_large_patch16(),
+        ArchPreset::VitHuge14 => VitConfig::vit_huge_patch14(),
+    };
+
+    let embed_dim = vit_config.embed_dim;
+    let (ph, pw) = vit_config.patch_size;
+    let num_patches = (args.height / ph) * (args.width / pw);
+
+    println!();
+    println!("  ╔══════════════════════════════════════════════════════════════╗");
+    println!("  ║                      JEPA Encoder                          ║");
+    println!("  ╠══════════════════════════════════════════════════════════════╣");
+    println!("  ║  Architecture:  {:<43} ║", format!("{:?}", args.preset));
+    println!("  ║  Embed dim:     {:<43} ║", embed_dim);
+    println!(
+        "  ║  Input size:    {:<43} ║",
+        format!("{}x{}", args.height, args.width)
+    );
+    println!("  ║  Num patches:   {:<43} ║", num_patches);
+    println!(
+        "  ║  Checkpoint:    {:<43} ║",
+        truncate(&args.model.display().to_string(), 43)
+    );
+    println!("  ╚══════════════════════════════════════════════════════════════╝");
+    println!();
+
+    let checkpoint = load_encoder_checkpoint(&args.model)?;
+    let tensor_map = checkpoint
+        .tensors
+        .iter()
+        .map(|(key, tensor)| (key.clone(), tensor.to_tensor_data()))
+        .collect();
+    let encoder = vit_config
+        .init::<B>(&DEVICE)
+        .load_named_tensors(&tensor_map)
+        .with_context(|| format!("failed to inject weights from {}", args.model.display()))?;
+
+    println!(
+        "  Loaded {} mapped tensor(s) from safetensors checkpoint.",
+        checkpoint.tensors.len()
+    );
+    if !checkpoint.unmapped_keys.is_empty() {
+        println!(
+            "  Ignored {} unmapped checkpoint key(s).",
+            checkpoint.unmapped_keys.len()
+        );
+    }
+    println!();
+
+    run_encoder_samples(
+        &encoder,
+        args.height,
+        args.width,
+        args.num_samples,
+        embed_dim,
+    )
+}
+
+fn run_demo(args: EncodeArgs) -> Result<()> {
     let vit_config = match args.preset {
         ArchPreset::VitBase16 => VitConfig::vit_base_patch16(),
         ArchPreset::VitSmall16 => VitConfig::vit_small_patch16(),
@@ -140,12 +205,28 @@ fn run_burn(args: EncodeArgs) -> Result<()> {
     let encoder = vit_config.init::<B>(&DEVICE);
 
     println!("  Note: Using randomly initialized weights (checkpoint loading");
-    println!("  into burn modules requires weight injection support).");
+    println!("  is only implemented for .safetensors and .onnx inputs).");
     println!();
 
-    for i in 0..args.num_samples {
+    run_encoder_samples(
+        &encoder,
+        args.height,
+        args.width,
+        args.num_samples,
+        embed_dim,
+    )
+}
+
+fn run_encoder_samples(
+    encoder: &jepa_vision::vit::VitEncoder<B>,
+    height: usize,
+    width: usize,
+    num_samples: usize,
+    embed_dim: usize,
+) -> Result<()> {
+    for i in 0..num_samples {
         let input: Tensor<B, 4> = Tensor::random(
-            [1, 3, args.height, args.width],
+            [1, 3, height, width],
             burn::tensor::Distribution::Uniform(0.0, 1.0),
             &DEVICE,
         );
@@ -153,7 +234,7 @@ fn run_burn(args: EncodeArgs) -> Result<()> {
         let repr = encoder.encode(&input);
         let shape = repr.embeddings.dims();
 
-        println!("  Sample {}/{}", i + 1, args.num_samples);
+        println!("  Sample {}/{}", i + 1, num_samples);
         println!(
             "    Output shape: [{}, {}, {}]",
             shape[0], shape[1], shape[2]
@@ -184,4 +265,15 @@ fn run_burn(args: EncodeArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn load_encoder_checkpoint(path: &std::path::Path) -> Result<Checkpoint> {
+    let mapped = jepa_compat::safetensors::load_checkpoint(path, &ijepa_vit_keymap())
+        .context("failed to load safetensors checkpoint with I-JEPA keymap")?;
+    if !mapped.is_empty() {
+        return Ok(mapped);
+    }
+
+    jepa_compat::safetensors::load_raw_checkpoint(path)
+        .context("failed to load raw safetensors checkpoint without key remapping")
 }

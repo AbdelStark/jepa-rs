@@ -98,8 +98,16 @@ pub struct TrainArgs {
     pub lr: f64,
 
     /// Batch size
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, default_value_t = 1)]
     pub batch_size: usize,
+
+    /// Optional safetensors dataset file containing an image tensor `[N, C, H, W]`
+    #[arg(long)]
+    pub dataset: Option<PathBuf>,
+
+    /// Tensor key to read from `--dataset`
+    #[arg(long, default_value = "images")]
+    pub dataset_key: String,
 
     /// Masking strategy
     #[arg(long, default_value = "block")]
@@ -167,7 +175,7 @@ pub enum RegularizerChoice {
 
 #[derive(Parser)]
 pub struct EncodeArgs {
-    /// Path to model file (.onnx for runtime execution; other extensions use preset demo mode)
+    /// Path to model file (.onnx runtime, .safetensors burn-native load, others use preset demo mode)
     #[arg(short, long)]
     pub model: PathBuf,
 
@@ -232,5 +240,27 @@ mod tests {
                 panic!("expected train subcommand for preset `{preset}`");
             };
         }
+    }
+
+    #[test]
+    fn train_accepts_optional_dataset_arguments() {
+        let cli = Cli::try_parse_from([
+            "jepa",
+            "train",
+            "--dataset",
+            "train.safetensors",
+            "--dataset-key",
+            "images",
+        ])
+        .expect("dataset-backed train flags should parse");
+
+        let Some(Command::Train(args)) = cli.command else {
+            panic!("expected train subcommand");
+        };
+        assert_eq!(
+            args.dataset.as_deref(),
+            Some(std::path::Path::new("train.safetensors"))
+        );
+        assert_eq!(args.dataset_key, "images");
     }
 }

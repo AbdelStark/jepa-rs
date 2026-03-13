@@ -476,7 +476,8 @@ impl<B: Backend> IJepa<B> {
 
         let context = self.encode_context_strict(images, &mask.context_indices);
         let target_full = self.target_encoder.forward(images);
-        let target = target_full.gather(&mask.target_indices);
+        let target =
+            Representation::new(target_full.embeddings.detach()).gather(&mask.target_indices);
 
         let batch = images.dims()[0];
         let target_positions =
