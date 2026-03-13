@@ -1,15 +1,14 @@
-//! Training step types and the JEPA trainer.
+//! Training step types, configuration, and metrics.
 //!
-//! Implements RFC-008 (Training Loop) — core training step.
+//! Implements RFC-008 (Training Loop) — training state types.
 //!
-//! The training step orchestrates:
-//! 1. Masking
-//! 2. Context encoding (with gradients)
-//! 3. Target encoding (no gradients, EMA updated)
-//! 4. Prediction
-//! 5. Energy computation
-//! 6. Collapse prevention loss
-//! 7. EMA update
+//! This module contains the data types that flow through a JEPA training
+//! loop:
+//!
+//! - [`TrainStepOutput`] — decomposed loss terms from a single step.
+//! - [`TrainConfig`] — validated hyperparameters (LR, momentum, batch
+//!   size, logging intervals, etc.).
+//! - [`TrainMetrics`] — running averages for logging windows.
 
 use burn::tensor::{backend::Backend, Tensor};
 

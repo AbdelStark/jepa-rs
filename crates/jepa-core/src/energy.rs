@@ -2,9 +2,22 @@
 //!
 //! Implements RFC-004 (Energy Functions).
 //!
-//! Energy functions measure the distance between predicted and actual
-//! target representations. Lower energy = better prediction = more
-//! compatible pair.
+//! In JEPA, the **energy function** is the primary training signal. It
+//! measures the distance between the predictor's output (ŝ_y) and the
+//! target encoder's output (s_y). Lower energy means a better prediction,
+//! i.e. a more compatible (context, target) pair.
+//!
+//! ```text
+//! E(s_x, s_y; z) = d(Predictor(s_x, z), s_y)
+//! ```
+//!
+//! Three implementations are provided:
+//!
+//! | Type | Formula | Use case |
+//! |------|---------|----------|
+//! | [`L2Energy`] | mean squared error | I-JEPA, V-JEPA (default) |
+//! | [`CosineEnergy`] | `1 − cos_sim` | Direction-sensitive matching |
+//! | [`SmoothL1Energy`] | Huber loss | Outlier-robust training |
 
 use burn::tensor::{backend::Backend, Tensor};
 

@@ -1,16 +1,19 @@
 //! Registry of pretrained JEPA models from Facebook Research.
 //!
-//! Provides metadata, download URLs, and matching configurations for
-//! official pretrained JEPA models. Use this module to discover available
-//! models and get the correct architecture configs for loading weights.
+//! Provides metadata, download URLs, and matching architecture configs for
+//! official pretrained JEPA models. Use [`list_models`] to discover what
+//! is available and [`find_model`] to look up a model by name.
 //!
 //! ## Available models
 //!
-//! | Model | Architecture | Resolution | Params | Source |
+//! | Model | Architecture | Resolution | Params | Family |
 //! |-------|-------------|-----------|--------|--------|
-//! | I-JEPA ViT-H/14 | ViT-Huge, patch 14 | 224x224 | 632M | Facebook Research |
-//! | I-JEPA ViT-H/16-448 | ViT-Huge, patch 16 | 448x448 | 632M | Facebook Research |
-//! | I-JEPA ViT-G/16 | ViT-Giant, patch 16 | 224x224 | 1.0B | Facebook Research |
+//! | I-JEPA ViT-H/14 | ViT-Huge, patch 14 | 224×224 | 632 M | I-JEPA |
+//! | I-JEPA ViT-H/16-448 | ViT-Huge, patch 16 | 448×448 | 632 M | I-JEPA |
+//! | I-JEPA ViT-G/16 | ViT-Giant, patch 16 | 224×224 | 1.0 B | I-JEPA |
+//! | V-JEPA ViT-L/16 | ViT-Large, patch 16 | 224×224 | 307 M | V-JEPA |
+//! | V-JEPA ViT-H/16 | ViT-Huge, patch 16 | 224×224 | 632 M | V-JEPA |
+//! | V-JEPA 2 ViT-g/14 | ViT-giant, patch 14 | 224×224 | 1.0 B | V-JEPA 2 |
 //!
 //! ## Example
 //!

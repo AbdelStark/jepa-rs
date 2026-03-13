@@ -1,14 +1,20 @@
 //! # jepa-compat
 //!
-//! Checkpoint compatibility and ONNX runtime for jepa-rs.
+//! Checkpoint compatibility, model registry, and ONNX runtime for jepa-rs.
 //!
-//! Bridges the reference Python implementations (I-JEPA, V-JEPA, V-JEPA 2)
-//! with jepa-rs models through multiple loading paths:
+//! This crate bridges the reference Python implementations (I-JEPA, V-JEPA,
+//! V-JEPA 2) with jepa-rs by providing multiple checkpoint loading paths
+//! and a pretrained model registry.
 //!
-//! - **SafeTensors** — Load weights directly from `.safetensors` checkpoints
-//! - **ONNX metadata** — Inspect ONNX model structure and extract initializers
-//! - **ONNX runtime** — Execute ONNX models via the tract inference engine
-//! - **Model registry** — Discover pretrained Facebook Research JEPA models
+//! ## Loading paths
+//!
+//! | Path | Format | Status |
+//! |------|--------|--------|
+//! | [`safetensors`] | `.safetensors` (F32 / F16 / BF16) | Functional |
+//! | [`onnx`] | ONNX metadata + initializer extraction | Functional |
+//! | [`runtime`] | ONNX graph execution via tract | Functional |
+//! | [`keymap`] | PyTorch → burn key remapping | Functional |
+//! | [`registry`] | Pretrained model discovery | Functional |
 //!
 //! ## Quick start: ONNX inference
 //!

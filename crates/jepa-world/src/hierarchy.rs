@@ -3,8 +3,17 @@
 //! Implements RFC-010 (Hierarchical JEPA).
 //!
 //! H-JEPA stacks multiple JEPA levels, each operating at a different
-//! temporal and spatial abstraction scale. Higher levels predict over
-//! longer time horizons with coarser spatial resolution.
+//! temporal and spatial abstraction scale:
+//!
+//! ```text
+//! Level 2 (coarsest) ─── stride 24 ──── long-horizon plans
+//! Level 1             ─── stride 6  ──── medium-horizon
+//! Level 0 (finest)    ─── stride 2  ──── short-horizon, detailed
+//! ```
+//!
+//! Higher levels predict over longer time horizons with coarser spatial
+//! resolution. The effective temporal stride at level *k* is the product
+//! of all strides up to and including level *k*.
 
 use burn::tensor::backend::Backend;
 

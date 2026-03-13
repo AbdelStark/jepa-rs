@@ -2,10 +2,22 @@
 //!
 //! Implements RFC-005 (Masking Strategies).
 //!
-//! Masking determines which parts of the input are context (visible)
-//! and which are targets (to predict). This is the most critical
-//! design decision in JEPA, as the masking strategy determines what
-//! the model learns.
+//! Masking determines which input tokens are **context** (visible to the
+//! context encoder) and which are **targets** (predicted by the predictor,
+//! encoded by the target encoder). The masking strategy is arguably the
+//! single most important design decision in JEPA — it determines the
+//! *pretext task* and thus what the model learns.
+//!
+//! Three strategies are provided:
+//!
+//! | Strategy | Domain | Reference |
+//! |----------|--------|-----------|
+//! | [`BlockMasking`] | Images | Assran et al. (2023), I-JEPA |
+//! | [`SpatiotemporalMasking`] | Video | Bardes et al. (2024), V-JEPA |
+//! | [`MultiBlockMasking`] | Images / Video | Bardes et al. (2025), V-JEPA 2 |
+//!
+//! All strategies guarantee disjoint, non-empty context and target sets
+//! (see [`MaskSpec::validate`](crate::types::MaskSpec::validate)).
 
 use rand::{Rng, RngExt as _};
 

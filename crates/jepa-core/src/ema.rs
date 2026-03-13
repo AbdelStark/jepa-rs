@@ -2,9 +2,26 @@
 //!
 //! Implements RFC-007 (EMA Target Encoder).
 //!
-//! In JEPA, the target encoder is not trained via gradient descent.
-//! Instead, its weights are an EMA of the context encoder's weights.
-//! This asymmetry is critical for preventing collapse.
+//! In JEPA the target encoder is **not** trained by gradient descent.
+//! Instead, after every training step its weights ξ are updated as an
+//! exponential moving average of the context encoder's weights θ:
+//!
+//! ```text
+//! ξ ← m · ξ + (1 − m) · θ
+//! ```
+//!
+//! where `m ∈ [0, 1]` is the momentum. Typical values are 0.996–0.9999.
+//!
+//! This asymmetry is a key ingredient for avoiding representational
+//! collapse: the slowly-changing target provides a stable prediction
+//! objective while the context encoder explores.
+//!
+//! Two momentum modes are supported:
+//!
+//! - **Constant** — `m` is fixed throughout training.
+//! - **Cosine schedule** — `m` increases from a base value to 1.0
+//!   following a cosine curve, so the target becomes progressively
+//!   more stable as training converges (V-JEPA 2 style).
 
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;

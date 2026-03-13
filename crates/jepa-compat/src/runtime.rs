@@ -1,14 +1,17 @@
 //! ONNX runtime execution for JEPA models.
 //!
-//! Provides model loading and inference execution using the `tract-onnx`
+//! Provides model loading and inference execution using the [`tract-onnx`]
 //! inference engine. This module bridges exported ONNX models (from PyTorch
 //! or other frameworks) with Rust-native inference.
 //!
 //! ## Workflow
 //!
-//! 1. Export a pretrained JEPA model to ONNX (see `scripts/export_ijepa_onnx.py`)
-//! 2. Load the ONNX model with [`OnnxSession::from_path`]
-//! 3. Run inference with [`OnnxSession::run`]
+//! 1. Export a pretrained JEPA model to ONNX (e.g. `scripts/export_ijepa_onnx.py`).
+//! 2. Load the ONNX model with [`OnnxSession::from_path`].
+//! 3. Run inference with [`OnnxSession::run_f32`] or [`OnnxSession::run_f32_multi`].
+//!
+//! You can also inspect a model without running it via the
+//! `inspect_model` and `validate_model` free functions in [`crate::onnx`].
 //!
 //! ## Example
 //!
@@ -18,12 +21,13 @@
 //! let session = OnnxSession::from_path("ijepa_vit_h14.onnx")?;
 //! println!("Model: {:?}", session.info());
 //!
-//! // Create a dummy input: [1, 3, 224, 224]
 //! let input = vec![0.0f32; 1 * 3 * 224 * 224];
 //! let output = session.run_f32(&[1, 3, 224, 224], &input)?;
 //! println!("Output shape: {:?}, values: {}", output.shape, output.data.len());
 //! # Ok::<(), jepa_compat::runtime::RuntimeError>(())
 //! ```
+//!
+//! [`tract-onnx`]: https://docs.rs/tract-onnx
 
 use std::path::Path;
 use std::sync::Arc;

@@ -2,13 +2,19 @@
 //!
 //! Implements the patchification step from RFC-002 (Encoder Module).
 //!
-//! Converts an image into a sequence of patch embeddings by:
-//! 1. Dividing the image into non-overlapping patches of size `(patch_h, patch_w)`
-//! 2. Flattening each patch into a vector
-//! 3. Projecting each flattened patch through a linear layer to `embed_dim`
+//! Patch embedding is the first stage of a Vision Transformer: it converts
+//! a raw image into a sequence of learnable token vectors.
 //!
-//! Input shape: `[batch, channels, height, width]`
-//! Output shape: `[batch, num_patches, embed_dim]`
+//! ```text
+//! [B, C, H, W]  ──reshape──►  [B, grid_h·grid_w, C·patch_h·patch_w]  ──linear──►  [B, S, D]
+//! ```
+//!
+//! Steps:
+//! 1. Divide the image into non-overlapping patches of size `(patch_h, patch_w)`.
+//! 2. Flatten each patch to a vector of length `C × patch_h × patch_w`.
+//! 3. Project through a learned linear layer to `embed_dim`.
+//!
+//! For video, see [`crate::video`] which uses 3-D *tubelet* embedding instead.
 
 use burn::nn::{Linear, LinearConfig};
 use burn::prelude::*;
