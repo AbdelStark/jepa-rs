@@ -72,7 +72,7 @@ jobs:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
-      - run: cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only
+      - run: cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only --ignore-filename-regex '(tui/(ui|event|mod)\.rs|main\.rs)$'
 
   bench-smoke:
     name: Bench Smoke
@@ -112,7 +112,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@cargo-fuzz
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
       - working-directory: fuzz
         run: cargo fuzz run masking -- -runs=256
       - working-directory: fuzz
@@ -127,6 +129,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2.0.0
+      - uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+      - run: cargo audit

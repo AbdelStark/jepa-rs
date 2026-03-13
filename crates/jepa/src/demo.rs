@@ -395,3 +395,155 @@ fn scale_u32_to_u8(value: u32, max: u32) -> u8 {
     }
     ((value.min(max) * 255) / max) as u8
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn demo_id_all_has_three_variants() {
+        assert_eq!(DemoId::ALL.len(), 3);
+    }
+
+    #[test]
+    fn demo_id_titles_are_nonempty() {
+        for demo in DemoId::ALL {
+            assert!(!demo.title().is_empty());
+            assert!(!demo.subtitle().is_empty());
+            assert!(!demo.example_name().is_empty());
+            assert!(!demo.estimated_duration().is_empty());
+            assert!(!demo.command().is_empty());
+            assert!(!demo.process_notes().is_empty());
+            assert!(!demo.monitoring_notes().is_empty());
+        }
+    }
+
+    #[test]
+    fn demo_id_commands_contain_example_name() {
+        for demo in DemoId::ALL {
+            assert!(demo.command().contains(demo.example_name()));
+        }
+    }
+
+    #[test]
+    fn inference_demo_id_all_has_two_variants() {
+        assert_eq!(InferenceDemoId::ALL.len(), 2);
+    }
+
+    #[test]
+    fn inference_demo_id_properties() {
+        for demo in InferenceDemoId::ALL {
+            assert!(!demo.title().is_empty());
+            assert!(!demo.subtitle().is_empty());
+            assert!(!demo.estimated_duration().is_empty());
+            assert!(!demo.engine_note().is_empty());
+            assert!(!demo.process_notes().is_empty());
+            assert!(!demo.monitoring_notes().is_empty());
+            let (w, h) = demo.input_size();
+            assert!(w > 0 && h > 0);
+            assert!(demo.sample_count() > 0);
+        }
+    }
+
+    #[test]
+    fn scale_u32_to_u8_boundary_values() {
+        assert_eq!(scale_u32_to_u8(0, 100), 0);
+        assert_eq!(scale_u32_to_u8(100, 100), 255);
+        assert_eq!(scale_u32_to_u8(50, 100), 127);
+        assert_eq!(scale_u32_to_u8(0, 0), 0);
+    }
+
+    #[test]
+    fn scale_u32_to_u8_clamps_above_max() {
+        assert_eq!(scale_u32_to_u8(200, 100), 255);
+    }
+
+    #[test]
+    fn render_demo_image_has_correct_dimensions() {
+        let img = render_demo_image(gradient_horizontal);
+        assert_eq!(img.width(), DEMO_IMAGE_SIZE);
+        assert_eq!(img.height(), DEMO_IMAGE_SIZE);
+    }
+
+    #[test]
+    fn all_pixel_functions_produce_valid_rgb() {
+        let fns: &[PixelFn] = &[
+            gradient_horizontal,
+            gradient_vertical,
+            checkerboard,
+            diagonal_mix,
+            concentric_rings,
+            quadrants,
+        ];
+        for pixel_fn in fns {
+            // Just ensure no panics for all coordinates
+            for y in 0..DEMO_IMAGE_SIZE {
+                for x in 0..DEMO_IMAGE_SIZE {
+                    let _rgb = pixel_fn(x, y);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn demo_pattern_images_returns_all() {
+        let images = demo_pattern_images();
+        assert_eq!(images.len(), DEMO_IMAGE_COUNT);
+        for (name, img) in &images {
+            assert!(!name.is_empty());
+            assert_eq!(img.width(), DEMO_IMAGE_SIZE);
+            assert_eq!(img.height(), DEMO_IMAGE_SIZE);
+        }
+    }
+
+    #[test]
+    fn synthetic_demo_args_valid() {
+        let args = synthetic_demo_args();
+        assert!(args.warmup < args.steps);
+        assert!(args.lr > 0.0);
+        assert!(args.batch_size > 0);
+    }
+
+    #[test]
+    fn workspace_root_exists() {
+        let root = workspace_root();
+        assert!(root.exists());
+    }
+
+    #[test]
+    fn demo_image_folder_path_is_under_target() {
+        let path = demo_image_folder();
+        let path_str = path.display().to_string();
+        assert!(path_str.contains("target"));
+        assert!(path_str.contains("example-data"));
+    }
+
+    #[test]
+    fn demo_checkpoint_dir_includes_name() {
+        let path = demo_checkpoint_dir("my-demo");
+        let path_str = path.display().to_string();
+        assert!(path_str.contains("my-demo"));
+    }
+
+    #[test]
+    fn checkerboard_pattern_is_deterministic() {
+        let a = checkerboard(0, 0);
+        let b = checkerboard(0, 0);
+        assert_eq!(a, b);
+        // On-tile at (0,0) should differ from off-tile at (12,0)
+        let c = checkerboard(12, 0);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn quadrants_pattern_has_four_colors() {
+        let tl = quadrants(0, 0);
+        let tr = quadrants(DEMO_IMAGE_SIZE - 1, 0);
+        let bl = quadrants(0, DEMO_IMAGE_SIZE - 1);
+        let br = quadrants(DEMO_IMAGE_SIZE - 1, DEMO_IMAGE_SIZE - 1);
+        // All four quadrants should be different
+        assert_ne!(tl, tr);
+        assert_ne!(tl, bl);
+        assert_ne!(tl, br);
+    }
+}
