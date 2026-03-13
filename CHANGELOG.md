@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added in-repo planning docs for production gaps, milestone roadmap, and implementation work packages
 
 ### Added
+- **jepa**: CLI binary with 6 subcommands (`models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`)
+- **jepa**: Interactive TUI dashboard with 5 tabs (Dashboard, Models, Training, Checkpoint, About) using ratatui and Catppuccin Mocha theme
 - **jepa-vision**: Strict masked image and video forward paths with no-leakage regression coverage
 - **jepa-vision**: Criterion coverage for strict `IJepa::forward_step_strict` in the maintained vision benchmark surface
 - **jepa-world**: `try_new`, `try_push`, `try_total_cost`, and `try_plan` runtime-validation helpers for caller-triggerable failure modes

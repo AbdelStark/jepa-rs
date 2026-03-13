@@ -4,7 +4,7 @@
 
 `jepa-rs` is an alpha Rust workspace that implements JEPA-oriented model components on top of the `burn` tensor stack.
 
-The repository is a library workspace, not a deployed service. "Production readiness" here means API clarity, numerical correctness, reproducible local verification, and honest documentation of what is still missing.
+The repository is a library workspace with a CLI/TUI binary, not a deployed service. "Production readiness" here means API clarity, numerical correctness, reproducible local verification, and honest documentation of what is still missing.
 
 Execution planning lives in:
 
@@ -60,9 +60,20 @@ Owns interoperability:
 
 - safetensors loading
 - key remapping from Python checkpoints
-- ONNX metadata API surface
+- ONNX metadata inspection and initializer loading
+- pretrained model registry
 
-Today, safetensors support is functional and ONNX loading is not.
+Safetensors support is functional. ONNX metadata inspection and initializer loading are implemented; full ONNX graph execution is not.
+
+### `jepa`
+
+Owns the user-facing binary:
+
+- CLI with 6 subcommands: `models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`
+- interactive TUI dashboard with 5 tabs (Dashboard, Models, Training, Checkpoint, About)
+- built on `clap` (CLI) and `ratatui`/`crossterm` (TUI)
+
+This crate depends on all library crates but no library crate depends on it.
 
 ## Data Flow
 
@@ -103,13 +114,13 @@ Strict pre-attention masking is now provided through the concrete vision-model h
 
 ### ONNX parsing and initializer loading are implemented
 
-[`crates/jepa-compat/src/onnx.rs`](./crates/jepa-compat/src/onnx.rs) now parses real ONNX `ModelProto` files, extracts input/output metadata, and loads embedded initializers into the checkpoint abstraction used by the rest of the workspace.
+[`crates/jepa-compat/src/onnx.rs`](./crates/jepa-compat/src/onnx.rs) parses real ONNX `ModelProto` files, extracts input/output metadata, and loads embedded initializers into the checkpoint abstraction used by the rest of the workspace.
 
 Current scope is model inspection and weight import, not general ONNX runtime execution.
 
-### Reference parity is not proven
+### Reference parity covers strict image flows
 
-The workspace has a substantial unit and integration suite, but it still lacks differential checks against the canonical Python JEPA implementations.
+Differential parity now runs in CI against three checked-in strict I-JEPA image fixtures. Strict video parity remains unproven.
 
 ## Verification Runbook
 
@@ -129,17 +140,20 @@ When editing numerical code, also run the relevant crate-specific tests first:
 cargo test -p jepa-core
 cargo test -p jepa-vision
 cargo test -p jepa-train
+cargo test -p jepa-compat
 ```
 
 ## Current State
 
-As of March 12, 2026:
+As of March 13, 2026:
 
 - Workspace build, test, clippy, and docs pass locally.
 - Safetensors and ONNX initializer loading are usable.
 - Strict image and video masked forward paths exist alongside the generic approximate trainer.
+- Differential parity runs against three checked-in strict I-JEPA image fixtures in CI.
 - Fuzz targets, coverage policy, and benchmark smoke checks are part of the verification surface.
-- Differential reference parity and crates.io publication still require follow-through.
+- CLI binary (`jepa`) and interactive TUI dashboard are available.
+- crates.io publication still requires follow-through.
 
 ## Next Three Milestones
 

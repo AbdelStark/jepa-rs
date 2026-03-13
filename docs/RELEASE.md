@@ -11,8 +11,8 @@ the current release-candidate draft notes live in
 
 ## Rehearsal Status
 
-As of March 12, 2026, the dependency-order `cargo package` rehearsal succeeds
-locally for all five crates. This is a dry-run readiness signal, not a publish
+As of March 13, 2026, the dependency-order `cargo package` rehearsal succeeds
+locally for all six crates. This is a dry-run readiness signal, not a publish
 event.
 
 ## Pre-Release Checklist
@@ -38,6 +38,7 @@ cargo package -p jepa-vision --no-verify --exclude-lockfile
 cargo package -p jepa-world --no-verify --exclude-lockfile
 cargo package -p jepa-train --no-verify --exclude-lockfile
 cargo package -p jepa-compat --no-verify --exclude-lockfile
+cargo package -p jepa --no-verify --exclude-lockfile
 ```
 
 Notes:
@@ -64,6 +65,7 @@ Publish in dependency order:
 3. `jepa-world`
 4. `jepa-train`
 5. `jepa-compat`
+6. `jepa`
 
 ## Support Policy
 

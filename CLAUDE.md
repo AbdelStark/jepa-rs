@@ -1,7 +1,7 @@
 <identity>
-jepa-rs is an alpha Rust workspace for JEPA components built on burn 0.16.
+jepa-rs is an alpha Rust workspace for JEPA components built on burn 0.20.1.
 
-As of March 12, 2026, the workspace compiles cleanly and its current tests pass, safetensors support is functional, ONNX loading is still a stub, and the generic training helper still slices tokens after encoder forward instead of enforcing strict pre-encoder masking.
+As of March 13, 2026, the workspace compiles cleanly and its current tests pass, safetensors support is functional, ONNX metadata inspection and initializer loading work, strict masked-encoder paths exist for image and video, the generic training helper still slices tokens after encoder forward, and the workspace includes a CLI binary (`jepa`) and interactive TUI dashboard.
 </identity>
 
 <architecture>
@@ -12,7 +12,8 @@ As of March 12, 2026, the workspace compiles cleanly and its current tests pass,
 | `crates/jepa-vision` | ViT encoders, image/video JEPA pieces, predictor implementations |
 | `crates/jepa-world` | Action-conditioned rollout, planning, hierarchy, short-term memory |
 | `crates/jepa-train` | Training-step orchestration, schedules, checkpoint metadata |
-| `crates/jepa-compat` | safetensors loading, key remapping, ONNX API surface |
+| `crates/jepa-compat` | safetensors loading, key remapping, ONNX metadata inspection |
+| `crates/jepa` | CLI binary and interactive TUI dashboard |
 
 Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) before making architectural changes.
 Read [`PRODUCTION_GAP.md`](./PRODUCTION_GAP.md), [`ROADMAP.md`](./ROADMAP.md), and [`WORK_PACKAGES.md`](./WORK_PACKAGES.md) before planning substantial work.
@@ -23,11 +24,13 @@ Read [`PRODUCTION_GAP.md`](./PRODUCTION_GAP.md), [`ROADMAP.md`](./ROADMAP.md), a
 | Layer | Tooling |
 |-------|---------|
 | Language | Rust 2021 |
-| Tensor backend | `burn = 0.16` |
-| CPU backend in tests | `burn-ndarray = 0.16` |
+| Tensor backend | `burn = 0.20.1` |
+| CPU backend in tests | `burn-ndarray = 0.20.1` |
 | Serialization | `serde = 1`, `serde_json = 1` |
 | Errors | `thiserror = 2` |
-| Checkpoint format | `safetensors = 0.4` |
+| Checkpoint format | `safetensors = 0.7` |
+| CLI | `clap = 4` |
+| TUI | `ratatui = 0.29`, `crossterm = 0.28` |
 | Testing | `cargo test`, `proptest`, crate-local integration tests |
 | Linting | `cargo clippy --all-targets -- -D warnings` |
 | Formatting | `cargo fmt -- --check` |
@@ -71,7 +74,7 @@ cargo test -p jepa-compat
 - Do not modify `SPECIFICATION.md` without explicit human approval.
 - Do not modify workspace or crate `Cargo.toml` files without explicit human approval.
 - Do not change existing public trait signatures without explicit human approval.
-- Do not claim ONNX loading works. It does not yet.
+- Do not claim ONNX runtime execution works. Only metadata inspection and initializer loading are implemented.
 - Do not describe the generic trainer as a faithful masked JEPA trainer without qualifying the current limitation.
 
 </critical_constraints>
@@ -81,14 +84,19 @@ cargo test -p jepa-compat
 - `JepaComponents::forward_step` is a generic orchestration helper. It validates masks and passes real target indices, but it still filters tokens after encoder forward because `Encoder::Input` is opaque.
 - `TransformerPredictor` expects `target_positions` to contain real flattened token indices.
 - `Representation::gather` preserves masks. If a downstream change drops masks again, that is a regression.
-- `OnnxModelInfo::from_file` distinguishes missing files from runtime-unavailable errors, but successful parsing still requires a future runtime dependency.
+- `OnnxModelInfo::from_file` distinguishes missing files from runtime-unavailable errors. Metadata inspection and initializer loading work, but full ONNX graph execution is not yet implemented.
 
 </gotchas>
 
 <current_state>
 
 - Verified locally: build, tests, clippy, and docs.
-- Missing: strict masked-encoder training path, ONNX runtime integration, differential tests, fuzz targets, crates.io release packaging.
+- Strict masked-encoder paths exist for image (`IJepa::forward_step_strict`) and video (`VJepa::forward_step_strict`).
+- Differential parity runs against 3 checked-in strict I-JEPA image fixtures in CI.
+- Safetensors checkpoint loading is functional. ONNX metadata inspection and initializer loading work.
+- CLI binary (`jepa`) provides 6 subcommands: `models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`.
+- Interactive TUI dashboard with 5 tabs: Dashboard, Models, Training, Checkpoint, About.
+- Still missing: ONNX runtime graph execution, strict video parity, crates.io release.
 - Project status: alpha library for experimentation and extension, not production-ready parity code.
 - Active planning source of truth: `PRODUCTION_GAP.md`, `ROADMAP.md`, `WORK_PACKAGES.md`.
 

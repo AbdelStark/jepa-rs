@@ -20,7 +20,7 @@ Use this document together with:
 
 ## Status Snapshot
 
-As of March 12, 2026:
+As of March 13, 2026:
 
 - M0 is complete.
 - M1 is complete: strict image and video masked paths landed with no-leakage regression coverage.

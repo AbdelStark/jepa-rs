@@ -3,13 +3,14 @@
 <project>
 jepa-rs is an alpha Rust workspace for JEPA components on top of burn 0.20.1.
 
-Current state as of March 12, 2026:
+Current state as of March 13, 2026:
 - Workspace build, tests, clippy, docs, parity, and package smoke pass locally.
 - Strict image and video masked helpers exist with no-leakage regression coverage.
-- Differential parity runs in CI for one strict I-JEPA image fixture.
+- Differential parity runs in CI for three strict I-JEPA image fixtures.
 - Safetensors support is functional, and ONNX metadata inspection plus initializer loading are implemented.
 - Full ONNX runtime execution remains out of scope unless explicitly approved.
 - The generic trainer remains approximate by design and must not be treated as the strict semantic reference path.
+- CLI binary (`jepa`) provides 6 subcommands and an interactive TUI dashboard.
 </project>
 
 <roles>
@@ -41,6 +42,7 @@ Critical crates:
 - `crates/jepa-vision`: vision encoders and predictor
 - `crates/jepa-train`: training orchestration
 - `crates/jepa-compat`: safetensors and ONNX adapter
+- `crates/jepa`: CLI binary and TUI dashboard
 - planning source of truth: `PRODUCTION_GAP.md`, `ROADMAP.md`, `WORK_PACKAGES.md`
 
 </shared_context>
