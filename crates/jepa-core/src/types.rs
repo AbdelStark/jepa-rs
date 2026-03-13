@@ -1,4 +1,17 @@
 //! Core data types for JEPA.
+//!
+//! This module provides the semantic tensor wrappers that form the common
+//! vocabulary across every JEPA crate:
+//!
+//! | Type | Shape | Role |
+//! |------|-------|------|
+//! | [`Representation`] | `[B, S, D]` | Encoder / predictor output with optional validity mask |
+//! | [`Energy`] | `[1]` | Scalar compatibility score (lower = better) |
+//! | [`MaskSpec`] | — | Disjoint context / target index partition |
+//! | [`InputShape`] | — | 2-D image or 3-D video grid dimensions |
+//! | [`MaskError`] | — | Validation errors for [`MaskSpec`] |
+//!
+//! All tensor-bearing types are generic over `B: Backend`.
 
 use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
 

@@ -1,25 +1,21 @@
-//! PyTorch state_dict key mapping.
+//! PyTorch → burn parameter key mapping.
 //!
-//! Maps keys from PyTorch I-JEPA / V-JEPA checkpoints to the corresponding
-//! burn module parameter paths used by jepa-rs.
+//! When loading checkpoints exported from the reference I-JEPA / V-JEPA
+//! PyTorch code, parameter names must be translated to the key paths
+//! used by jepa-rs's burn modules. This module provides the mapping
+//! infrastructure and built-in remap tables for both architectures.
 //!
 //! ## Key conventions
 //!
-//! PyTorch keys follow the pattern:
-//! ```text
-//! blocks.{layer}.attn.qkv.weight
-//! blocks.{layer}.attn.proj.weight
-//! blocks.{layer}.norm1.weight
-//! blocks.{layer}.mlp.fc1.weight
-//! ```
+//! | Framework | Example key |
+//! |-----------|-------------|
+//! | PyTorch | `blocks.{layer}.attn.proj.weight` |
+//! | burn (jepa-rs) | `blocks.{layer}.attn.out_proj.weight` |
 //!
-//! jepa-rs burn keys follow:
-//! ```text
-//! blocks.{layer}.attn.qkv.weight
-//! blocks.{layer}.attn.out_proj.weight
-//! blocks.{layer}.norm1.weight
-//! blocks.{layer}.mlp.fc1.weight
-//! ```
+//! Most keys are identical; only a handful of suffixes differ (e.g.
+//! `proj` → `out_proj`). The [`KeyMapping`] type encapsulates a single
+//! prefix/suffix replacement rule; [`build_remap_table`] combines
+//! multiple rules into a `HashMap<String, String>` for bulk remapping.
 
 use std::collections::HashMap;
 

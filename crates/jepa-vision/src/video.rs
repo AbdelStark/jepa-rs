@@ -2,15 +2,29 @@
 //!
 //! Implements RFC-002 (Encoder Module) for video input.
 //!
-//! V-JEPA extends I-JEPA to video by replacing 2D patches with 3D tubelets
-//! (temporal × spatial × spatial) and using 3D Rotary Position Encoding
-//! for spatiotemporal position awareness.
+//! V-JEPA extends I-JEPA from images to video by replacing 2-D patches
+//! with 3-D **tubelets** `(temporal × height × width)` and using 3-D
+//! Rotary Position Encoding for spatiotemporal position awareness.
 //!
-//! Architecture:
-//! 1. Tubelet embedding: video → tubelet sequence
-//! 2. 3D RoPE: encode temporal + spatial positions
-//! 3. Transformer blocks: self-attention + MLP
-//! 4. Layer normalization
+//! ```text
+//! [B, C, T, H, W]
+//!       │
+//!       ▼
+//! TubeletEmbedding  ──►  3D RoPE  ──►  N × TransformerBlock  ──►  LayerNorm
+//! [B, S, D]              [B, S, D]     [B, S, D]                   [B, S, D]
+//! ```
+//!
+//! where `S = (T/t) × (H/h) × (W/w)` for tubelet size `(t, h, w)`.
+//!
+//! The module also provides [`VJepa`], a full V-JEPA pipeline struct
+//! with `forward_step_strict` for masked training with pre-encoder
+//! token filtering, mirroring the reference implementation.
+//!
+//! References:
+//! - Bardes, A. et al. (2024). *V-JEPA: Latent Video Prediction for
+//!   Visual Representation Learning*.
+//! - Bardes, A. et al. (2025). *V-JEPA 2: Self-Supervised Video Models
+//!   Enable Understanding, Generation, and Planning*.
 
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;

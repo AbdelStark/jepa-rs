@@ -1,8 +1,17 @@
-//! ONNX model inspection and initializer import for JEPA models.
+//! ONNX model inspection and initializer loading for JEPA models.
 //!
-//! Provides metadata inspection and initializer loading for ONNX checkpoints
-//! using the `tract-onnx` parser stack.
-//! It does not execute ONNX graphs or provide a general ONNX runtime.
+//! This module uses the `tract-onnx` protobuf parser to extract
+//! metadata and weight initializers from `.onnx` files **without**
+//! executing the computation graph. For graph execution, see the
+//! [`crate::runtime`] module.
+//!
+//! Two primary use cases:
+//!
+//! 1. **Inspection** — [`OnnxModelInfo::from_file`] returns input/output
+//!    shapes, data types, and tensor metadata for a model file.
+//! 2. **Weight import** — [`load_checkpoint`] extracts all initializer
+//!    tensors into a [`Checkpoint`]
+//!    compatible with the key-remapping infrastructure.
 //!
 //! ## Usage
 //!

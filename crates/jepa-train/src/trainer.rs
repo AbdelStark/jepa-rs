@@ -1,20 +1,28 @@
 //! JEPA training step orchestration.
 //!
-//! Implements RFC-008 (Training Loop) — the core training step that ties
-//! together all JEPA components: masking, encoding, prediction, energy
-//! computation, collapse prevention, and EMA update.
+//! Implements RFC-008 (Training Loop) — the core forward-step that ties
+//! together all JEPA components.
 //!
-//! The trainer computes the forward pass and returns the loss for backprop.
-//! It does NOT own the optimizer — that is the caller's responsibility,
-//! following burn's convention of keeping optimization separate from
-//! model logic.
+//! [`JepaComponents`] is a generic struct that borrows references to an
+//! encoder, predictor, energy function, collapse regularizer, masking
+//! strategy, and EMA updater. Calling [`JepaComponents::forward_step`]
+//! (or the fallible [`JepaComponents::try_forward_step`]) runs the full
+//! JEPA forward pass and returns a [`JepaForwardOutput`] containing
+//! decomposed loss terms ready for backpropagation.
 //!
-//! Important: [`JepaComponents::forward_step`] is intentionally generic over
-//! `Encoder`, which means it cannot remove hidden targets before encoder
-//! self-attention runs. For strict pre-encoder masking semantics, use the
-//! modality-specific helpers in `jepa-vision`:
-//! `jepa_vision::image::IJepa::forward_step_strict` and
-//! `jepa_vision::video::VJepa::forward_step_strict`.
+//! The trainer does **not** own the optimizer — that is the caller's
+//! responsibility, following burn's convention of keeping model logic
+//! separate from optimization.
+//!
+//! ## Limitation: post-encoder masking
+//!
+//! Because [`Encoder::Input`] is an opaque
+//! associated type, `forward_step` cannot remove hidden target tokens
+//! **before** encoder self-attention. Tokens are filtered *after* the
+//! encoder forward pass. For strict pre-encoder masking (needed for exact
+//! parity with the reference implementations), use:
+//! - `jepa_vision::image::IJepa::forward_step_strict`
+//! - `jepa_vision::video::VJepa::forward_step_strict`
 
 use burn::tensor::{backend::Backend, Tensor, TensorData};
 

@@ -1,10 +1,21 @@
 //! Encoder trait for JEPA.
 //!
-//! Implements RFC-002 (Encoder Module) — core trait definition.
+//! Implements RFC-002 (Encoder Module).
 //!
-//! An encoder maps raw input to a representation in embedding space.
-//! In JEPA, both the context encoder and target encoder implement this trait.
-//! The target encoder's weights are updated via EMA (RFC-007), not gradients.
+//! An encoder maps raw input (images, video, or already-embedded tokens)
+//! into a [`Representation`] in embedding space.
+//!
+//! In a JEPA training loop **two** encoder instances exist:
+//!
+//! | Role | Gradients? | Weight update |
+//! |------|-----------|---------------|
+//! | **Context encoder** (θ) | Yes | Backpropagation |
+//! | **Target encoder** (ξ) | No | EMA of θ (see [`crate::ema::Ema`]) |
+//!
+//! Both share the same architecture and implement this trait. The
+//! asymmetric update (EMA on the target) is what prevents collapse.
+//!
+//! See [`crate::collapse`] for the regularizers that complement EMA.
 
 use burn::tensor::backend::Backend;
 
@@ -12,14 +23,22 @@ use crate::types::Representation;
 
 /// Trait for JEPA encoders.
 ///
-/// An encoder maps raw input to a [`Representation`]. Implementations
-/// include Vision Transformers (ViT) for images and video.
+/// An encoder maps raw input to a [`Representation`] with shape
+/// `[batch, seq_len, embed_dim]`. Concrete implementations include:
 ///
-/// # Type Parameters
-/// * `B` - The burn backend (e.g., NdArray, Wgpu)
+/// - [`jepa_vision::VitEncoder`](../../jepa_vision/vit/struct.VitEncoder.html) — Vision Transformer for images
+/// - [`jepa_vision::VitVideoEncoder`](../../jepa_vision/video/struct.VitVideoEncoder.html) — Vision Transformer for video
 ///
-/// # Associated Types
-/// * `Input` - The type of raw input the encoder accepts
+/// # Type parameters
+///
+/// - `B` — burn backend (e.g. `NdArray`, `Wgpu`, `Tch`)
+///
+/// # Associated types
+///
+/// - `Input` — the raw input type this encoder accepts. For vision
+///   encoders this is typically a `Tensor<B, 4>` (images) or
+///   `Tensor<B, 5>` (video). Higher-level wrappers may accept
+///   [`Representation<B>`] so that levels in a hierarchy can chain.
 pub trait Encoder<B: Backend> {
     /// The type of input this encoder accepts.
     type Input;

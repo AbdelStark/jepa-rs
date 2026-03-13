@@ -1,14 +1,24 @@
 //! I-JEPA (Image Joint Embedding Predictive Architecture) pipeline.
 //!
-//! Implements the complete I-JEPA model for self-supervised image learning.
-//! The model consists of:
-//! - A context encoder (ViT) that encodes visible patches
-//! - A target encoder (ViT, EMA copy) that encodes target patches
-//! - A transformer predictor that predicts target representations from context
-//! - Block masking strategy for creating prediction tasks
+//! Implements the complete I-JEPA model for self-supervised image learning,
+//! following Assran et al. (2023), *Self-Supervised Learning from Images
+//! with a Joint-Embedding Predictive Architecture*, CVPR.
 //!
-//! Reference: Assran et al. (2023), "Self-Supervised Learning from Images
-//! with a Joint-Embedding Predictive Architecture", CVPR.
+//! ## Components
+//!
+//! | Component | Struct | Role |
+//! |-----------|--------|------|
+//! | Context encoder | [`VitEncoder`](crate::vit::VitEncoder) | Encodes visible (context) patches with gradients |
+//! | Target encoder | [`VitEncoder`](crate::vit::VitEncoder) | Encodes target patches; weights are an EMA copy — **no gradients** |
+//! | Predictor | [`TransformerPredictor`] | Narrow cross-attention transformer that predicts target representations from context |
+//! | Masking | [`BlockMasking`](jepa_core::masking::BlockMasking) | Generates contiguous rectangular target blocks |
+//!
+//! ## Strict forward step
+//!
+//! [`IJepa::forward_step_strict`] implements the full masked training
+//! forward pass with pre-encoder token filtering, matching the reference
+//! PyTorch implementation. Use this path when you need exact parity
+//! with published I-JEPA results.
 
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;

@@ -2,14 +2,29 @@
 //!
 //! Implements RFC-002 (Encoder Module) — concrete ViT encoder.
 //!
-//! The Vision Transformer encodes images into patch-level representations
-//! by applying self-attention transformer blocks over patch embeddings.
+//! The ViT encoder converts an image into a sequence of patch-level
+//! representations suitable for JEPA training and inference.
 //!
-//! Architecture:
-//! 1. Patch embedding: image → patch sequence
-//! 2. Position encoding: 2D RoPE
-//! 3. Transformer blocks: self-attention + MLP
-//! 4. Layer normalization
+//! ```text
+//! [B, C, H, W]  ──►  PatchEmbedding  ──►  2D RoPE  ──►  N × TransformerBlock  ──►  LayerNorm
+//!                   [B, S, D]         [B, S, D]        [B, S, D]                   [B, S, D]
+//! ```
+//!
+//! Six preset configurations are provided:
+//!
+//! | Preset | Layers | Dim | Heads | Params (approx.) |
+//! |--------|--------|-----|-------|------------------|
+//! | `tiny_test` | 2 | 32 | 2 | ~12 K |
+//! | `vit_small_patch16` | 12 | 384 | 6 | ~22 M |
+//! | `vit_base_patch16` | 12 | 768 | 12 | ~86 M |
+//! | `vit_large_patch16` | 24 | 1024 | 16 | ~307 M |
+//! | `vit_huge_patch14` | 32 | 1280 | 16 | ~632 M |
+//! | `vit_giant_patch14` | 40 | 1408 | 16 | ~1.0 B |
+//!
+//! Two forward paths exist:
+//! - [`VitEncoder::forward`] — encode all patches (standard inference).
+//! - [`VitEncoder::forward_visible_tokens`] — encode only visible (context)
+//!   patches for efficient masked training.
 
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;

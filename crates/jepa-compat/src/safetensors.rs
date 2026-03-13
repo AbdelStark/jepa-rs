@@ -1,13 +1,18 @@
-//! Load model weights from safetensors files.
+//! Load model weights from SafeTensors files.
 //!
-//! Safetensors is the recommended serialization format for PyTorch/HuggingFace
-//! model checkpoints. This module reads safetensors files and converts the
-//! tensors into burn-compatible formats for loading into jepa-rs models.
+//! [SafeTensors](https://huggingface.co/docs/safetensors) is the recommended
+//! serialization format for PyTorch / HuggingFace model checkpoints. This
+//! module reads `.safetensors` files, applies optional key remapping (via
+//! [`crate::keymap`]), and returns burn-compatible tensors ready for loading
+//! into jepa-rs models.
 //!
 //! ## Supported dtypes
-//! - `F32` — 32-bit float (direct mapping)
-//! - `F16` — 16-bit float (converted to f32 via `half` crate)
-//! - `BF16` — bfloat16 (converted to f32 via `half` crate)
+//!
+//! | SafeTensors dtype | Conversion |
+//! |-------------------|------------|
+//! | `F32` | Direct mapping |
+//! | `F16` | Widened to f32 via `half` crate |
+//! | `BF16` | Widened to f32 via `half` crate |
 
 use std::collections::HashMap;
 use std::path::Path;

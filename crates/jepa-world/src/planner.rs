@@ -3,8 +3,18 @@
 //! Implements RFC-009 (Action-Conditioned World Model) — planning component.
 //!
 //! A world model combines an encoder, dynamics model, and cost function
-//! to enable model-based planning. It can simulate trajectories and
-//! evaluate action sequences before execution.
+//! to enable **model-based planning**: simulate candidate trajectories in
+//! representation space, score them, and select the best action sequence.
+//!
+//! The planner uses the **Cross-Entropy Method (CEM)** — a derivative-free
+//! optimizer that iteratively:
+//! 1. Samples random action sequences from a Gaussian.
+//! 2. Rolls out the dynamics model to get trajectories.
+//! 3. Evaluates each trajectory with a [`CostFunction`].
+//! 4. Refits the Gaussian to the top-*k* elite sequences.
+//!
+//! This approach works well even when the dynamics model and cost function
+//! are non-differentiable.
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};

@@ -2,11 +2,27 @@
 //!
 //! Implements position encoding from RFC-002 (Encoder Module).
 //!
-//! RoPE encodes absolute position information by rotating the query and key
-//! vectors in attention. For 2D images, we use separate rotary frequencies
-//! for the height and width axes, concatenating them along the embedding dim.
+//! Rotary Position Embedding encodes absolute token positions by rotating
+//! query and key vectors in attention. Unlike learned positional
+//! embeddings, RoPE is parameter-free, extrapolates to unseen lengths,
+//! and makes relative distances naturally emerge from the dot product.
 //!
-//! Reference: RoFormer (Su et al., 2021) extended to 2D for vision.
+//! For 2D images the embedding dimension is split into two halves:
+//! one half encodes the row position, the other half encodes the column
+//! position, giving each patch a unique spatial signature.
+//!
+//! ```text
+//! embed_dim = [── height freqs ──|── width freqs ──]
+//!              quarter_dim         quarter_dim
+//! ```
+//!
+//! Sin/cos tables are **precomputed** at init time for a fixed maximum
+//! grid size, then sliced to `seq_len` at forward time.
+//!
+//! For 3D video RoPE, see [`crate::video`].
+//!
+//! Reference: Su et al. (2021), *RoFormer: Enhanced Transformer with
+//! Rotary Position Embedding*.
 
 use burn::prelude::*;
 use burn::tensor::backend::Backend;

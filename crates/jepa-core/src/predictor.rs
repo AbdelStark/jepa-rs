@@ -1,10 +1,26 @@
 //! Predictor trait for JEPA.
 //!
-//! Implements RFC-003 (Predictor Module) — core trait definition.
+//! Implements RFC-003 (Predictor Module).
 //!
-//! The predictor maps a context representation + target positions to
-//! a predicted target representation. In I-JEPA and V-JEPA, the predictor
-//! uses cross-attention from learnable prediction tokens to the context.
+//! The predictor is the *generative* component of JEPA. Given the context
+//! encoder's output and a set of target positions, it predicts what the
+//! target encoder would produce for those positions.
+//!
+//! ```text
+//! context representation ──┐
+//!                          ▼
+//!                    ┌────────────┐
+//!    target_pos ────►│  Predictor │──► predicted target representation
+//!    z (optional) ──►│            │
+//!                    └────────────┘
+//! ```
+//!
+//! In I-JEPA and V-JEPA the predictor is a narrow transformer that
+//! cross-attends from learnable prediction tokens to the context. The
+//! optional latent variable `z` supports stochastic (energy-based)
+//! prediction, where the model captures multi-modal uncertainty.
+//!
+//! See [`crate::energy`] for functions that measure prediction quality.
 
 use burn::tensor::{backend::Backend, Tensor};
 
@@ -14,10 +30,15 @@ use crate::types::Representation;
 ///
 /// A predictor takes the context encoder's output and predicts the
 /// target encoder's output at specified positions. This is the core
-/// generative component of JEPA.
+/// generative component of JEPA — the only part that is trained with
+/// gradients in the standard JEPA loop.
 ///
-/// # Type Parameters
-/// * `B` - The burn backend
+/// Concrete implementations:
+/// - [`jepa_vision::TransformerPredictor`](../../jepa_vision/image/struct.TransformerPredictor.html) — narrow cross-attention predictor (I-JEPA / V-JEPA)
+///
+/// # Type parameters
+///
+/// - `B` — burn backend
 pub trait Predictor<B: Backend> {
     /// Predict target representation from context representation.
     ///

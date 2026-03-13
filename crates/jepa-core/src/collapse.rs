@@ -2,11 +2,20 @@
 //!
 //! Implements RFC-006 (Collapse Prevention).
 //!
-//! Without collapse prevention, JEPA training produces trivial solutions
-//! where all representations collapse to a constant. This module provides
-//! two regularizers:
-//! - [`VICReg`] (Variance-Invariance-Covariance Regularization) — primary method
-//! - [`BarlowTwins`] — redundancy reduction via cross-correlation identity matching
+//! Without explicit regularization, joint-embedding models can
+//! *collapse* — all inputs map to the same constant representation,
+//! yielding zero energy but zero information. While EMA target updates
+//! (see [`crate::ema`]) help, they are not sufficient alone. This
+//! module provides two complementary regularizers:
+//!
+//! | Regularizer | Strategy | Reference |
+//! |-------------|----------|-----------|
+//! | [`VICReg`] | Variance + Invariance + Covariance | Bardes et al. (2022), VICReg |
+//! | [`BarlowTwins`] | Cross-correlation → identity | Zbontar et al. (2021), Barlow Twins |
+//!
+//! Both implement the [`CollapseRegularizer`] trait and return a scalar
+//! loss term that should be added (with appropriate weighting) to the
+//! energy loss during training.
 
 use burn::tensor::{backend::Backend, Tensor};
 
