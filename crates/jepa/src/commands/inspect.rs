@@ -110,6 +110,18 @@ fn inspect_onnx(path: &Path) -> Result<()> {
             format_shape_i64(&out.shape),
         );
     }
+    println!("  ├──────────────────────────────────────────────────────────────┤");
+    println!("  │  Runtime Validation:                                        │");
+    match jepa_compat::runtime::validate_model(path) {
+        Ok(diagnostics) => {
+            for diag in &diagnostics {
+                println!("  │    {:<56} │", truncate(diag, 56));
+            }
+        }
+        Err(e) => {
+            println!("  │    {:<56} │", truncate(&format!("ERROR: {e}"), 56));
+        }
+    }
     println!("  └──────────────────────────────────────────────────────────────┘");
     println!();
 
