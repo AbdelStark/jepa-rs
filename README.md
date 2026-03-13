@@ -94,9 +94,14 @@ jepa checkpoint model.safetensors --keymap ijepa --verbose
 # Launch a training run
 jepa train --preset vit-base-16 --steps 1000 --lr 1e-3
 
-# Encode inputs through a model
-jepa encode --model model.safetensors --preset vit-base-16
+# Encode inputs through an ONNX model
+jepa encode --model model.onnx --height 224 --width 224
 ```
+
+The CLI `train` command runs the strict masked image forward path on synthetic
+random data. The non-ONNX `encode` path remains a preset demo with
+random-initialized burn weights; real checkpoint inspection/loading is exposed
+through `jepa inspect` and `jepa checkpoint`.
 
 ### Loading SafeTensors Checkpoints
 

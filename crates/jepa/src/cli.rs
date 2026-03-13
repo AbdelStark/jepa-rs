@@ -134,11 +134,15 @@ pub struct TrainArgs {
     pub output_dir: PathBuf,
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ArchPreset {
+    #[value(name = "vit-base-16", alias = "vit-base16")]
     VitBase16,
+    #[value(name = "vit-small-16", alias = "vit-small16")]
     VitSmall16,
+    #[value(name = "vit-large-16", alias = "vit-large16")]
     VitLarge16,
+    #[value(name = "vit-huge-14", alias = "vit-huge14")]
     VitHuge14,
 }
 
@@ -163,7 +167,7 @@ pub enum RegularizerChoice {
 
 #[derive(Parser)]
 pub struct EncodeArgs {
-    /// Path to model file (.safetensors or .onnx)
+    /// Path to model file (.onnx for runtime execution; other extensions use preset demo mode)
     #[arg(short, long)]
     pub model: PathBuf,
 
@@ -182,4 +186,51 @@ pub struct EncodeArgs {
     /// Number of random samples to encode (demo mode)
     #[arg(long, default_value_t = 1)]
     pub num_samples: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn train_defaults_parse_with_documented_preset_name() {
+        let cli = Cli::try_parse_from(["jepa", "train"]).expect("train defaults should parse");
+
+        let Some(Command::Train(args)) = cli.command else {
+            panic!("expected train subcommand");
+        };
+        assert_eq!(args.preset, ArchPreset::VitBase16);
+    }
+
+    #[test]
+    fn encode_defaults_parse_with_documented_preset_name() {
+        let cli = Cli::try_parse_from(["jepa", "encode", "--model", "model.onnx"])
+            .expect("encode defaults should parse");
+
+        let Some(Command::Encode(args)) = cli.command else {
+            panic!("expected encode subcommand");
+        };
+        assert_eq!(args.preset, ArchPreset::VitBase16);
+    }
+
+    #[test]
+    fn arch_preset_accepts_documented_and_legacy_aliases() {
+        for preset in [
+            "vit-base-16",
+            "vit-base16",
+            "vit-small-16",
+            "vit-small16",
+            "vit-large-16",
+            "vit-large16",
+            "vit-huge-14",
+            "vit-huge14",
+        ] {
+            let cli = Cli::try_parse_from(["jepa", "train", "--preset", preset])
+                .unwrap_or_else(|err| panic!("preset `{preset}` should parse: {err}"));
+
+            let Some(Command::Train(_)) = cli.command else {
+                panic!("expected train subcommand for preset `{preset}`");
+            };
+        }
+    }
 }

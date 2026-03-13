@@ -1,14 +1,16 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use burn::prelude::*;
 use burn_ndarray::NdArray;
 
 use jepa_core::{
     BarlowTwins, BlockMasking, CollapseRegularizer, CosineEnergy, EnergyFn, InputShape, L2Energy,
-    MultiBlockMasking, SmoothL1Energy, VICReg,
+    MaskingStrategy, MultiBlockMasking, SmoothL1Energy, VICReg,
 };
-use jepa_train::{JepaComponents, LrSchedule, WarmupCosineSchedule};
-use jepa_vision::image::{TransformerPredictor, TransformerPredictorConfig};
-use jepa_vision::vit::{VitConfig, VitEncoder};
+use jepa_train::{LrSchedule, WarmupCosineSchedule};
+use jepa_vision::image::{
+    IJepa, IJepaConfig, StrictIJepaForwardOutput, TransformerPredictorConfig,
+};
+use jepa_vision::vit::VitConfig;
 
 use crate::cli::{ArchPreset, EnergyChoice, MaskingChoice, RegularizerChoice, TrainArgs};
 
@@ -27,8 +29,9 @@ pub fn run(args: TrainArgs) -> Result<()> {
     };
 
     let embed_dim = vit_config.embed_dim;
+    let mask_shape = training_input_shape(&vit_config);
     let (ph, pw) = vit_config.patch_size;
-    let num_patches = (vit_config.image_height / ph) * (vit_config.image_width / pw);
+    let num_patches = mask_shape.total_tokens();
     let image_h = vit_config.image_height;
     let image_w = vit_config.image_width;
 
@@ -56,9 +59,11 @@ pub fn run(args: TrainArgs) -> Result<()> {
         max_target_len: num_patches,
     };
 
-    let context_encoder: VitEncoder<B> = vit_config.init(&DEVICE);
-    let target_encoder: VitEncoder<B> = vit_config.init(&DEVICE);
-    let predictor: TransformerPredictor<B> = predictor_config.init(&DEVICE);
+    let model: IJepa<B> = IJepaConfig {
+        encoder: vit_config.clone(),
+        predictor: predictor_config,
+    }
+    .init(&DEVICE);
 
     let _lr_schedule = WarmupCosineSchedule::new(args.lr, args.warmup, args.steps);
     let mut _ema = jepa_core::Ema::with_cosine_schedule(args.ema_momentum, args.steps);
@@ -78,119 +83,117 @@ pub fn run(args: TrainArgs) -> Result<()> {
         (EnergyChoice::L2, RegularizerChoice::Vicreg) => {
             run_loop(
                 &args,
-                &context_encoder,
-                &target_encoder,
-                &predictor,
+                &model,
                 &L2Energy,
                 &VICReg::default(),
                 &args.masking,
                 &block_masking,
                 &multi_block_masking,
+                &mask_shape,
                 image_h,
                 image_w,
-            );
+            )?;
         }
         (EnergyChoice::L2, RegularizerChoice::BarlowTwins) => {
             run_loop(
                 &args,
-                &context_encoder,
-                &target_encoder,
-                &predictor,
+                &model,
                 &L2Energy,
                 &BarlowTwins::default(),
                 &args.masking,
                 &block_masking,
                 &multi_block_masking,
+                &mask_shape,
                 image_h,
                 image_w,
-            );
+            )?;
         }
         (EnergyChoice::Cosine, RegularizerChoice::Vicreg) => {
             run_loop(
                 &args,
-                &context_encoder,
-                &target_encoder,
-                &predictor,
+                &model,
                 &CosineEnergy,
                 &VICReg::default(),
                 &args.masking,
                 &block_masking,
                 &multi_block_masking,
+                &mask_shape,
                 image_h,
                 image_w,
-            );
+            )?;
         }
         (EnergyChoice::Cosine, RegularizerChoice::BarlowTwins) => {
             run_loop(
                 &args,
-                &context_encoder,
-                &target_encoder,
-                &predictor,
+                &model,
                 &CosineEnergy,
                 &BarlowTwins::default(),
                 &args.masking,
                 &block_masking,
                 &multi_block_masking,
+                &mask_shape,
                 image_h,
                 image_w,
-            );
+            )?;
         }
         (EnergyChoice::SmoothL1, RegularizerChoice::Vicreg) => {
             run_loop(
                 &args,
-                &context_encoder,
-                &target_encoder,
-                &predictor,
+                &model,
                 &SmoothL1Energy::new(1.0),
                 &VICReg::default(),
                 &args.masking,
                 &block_masking,
                 &multi_block_masking,
+                &mask_shape,
                 image_h,
                 image_w,
-            );
+            )?;
         }
         (EnergyChoice::SmoothL1, RegularizerChoice::BarlowTwins) => {
             run_loop(
                 &args,
-                &context_encoder,
-                &target_encoder,
-                &predictor,
+                &model,
                 &SmoothL1Energy::new(1.0),
                 &BarlowTwins::default(),
                 &args.masking,
                 &block_masking,
                 &multi_block_masking,
+                &mask_shape,
                 image_h,
                 image_w,
-            );
+            )?;
         }
     }
 
     Ok(())
 }
 
+fn training_input_shape(vit_config: &VitConfig) -> InputShape {
+    let (patch_h, patch_w) = vit_config.patch_size;
+    InputShape::Image {
+        height: vit_config.image_height / patch_h,
+        width: vit_config.image_width / patch_w,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_loop<EF, CR>(
     args: &TrainArgs,
-    context_encoder: &VitEncoder<B>,
-    target_encoder: &VitEncoder<B>,
-    predictor: &TransformerPredictor<B>,
+    model: &IJepa<B>,
     energy_fn: &EF,
     regularizer: &CR,
     masking_choice: &MaskingChoice,
     block_masking: &BlockMasking,
     multi_block_masking: &MultiBlockMasking,
+    input_shape: &InputShape,
     image_h: usize,
     image_w: usize,
-) where
+) -> Result<()>
+where
     EF: EnergyFn<B>,
     CR: CollapseRegularizer<B>,
 {
-    let shape = InputShape::Image {
-        height: image_h,
-        width: image_w,
-    };
     let mut rng = rand::rng();
 
     let lr_schedule = WarmupCosineSchedule::new(args.lr, args.warmup, args.steps);
@@ -208,44 +211,30 @@ fn run_loop<EF, CR>(
             &DEVICE,
         );
 
-        // Use the appropriate masking strategy
-        match masking_choice {
+        let output = match masking_choice {
             MaskingChoice::Block => {
-                let components = JepaComponents::new(
-                    context_encoder,
-                    target_encoder,
-                    predictor,
-                    energy_fn,
-                    regularizer,
-                    block_masking,
-                    args.reg_weight,
-                );
-                let output = components.forward_step(&input, &shape, &mut rng);
-                print_step(step, &output, lr, args);
+                let mask = block_masking.generate_mask(input_shape, &mut rng);
+                model.try_forward_step_strict(&input, mask, energy_fn, regularizer, args.reg_weight)
             }
             MaskingChoice::MultiBlock => {
-                let components = JepaComponents::new(
-                    context_encoder,
-                    target_encoder,
-                    predictor,
-                    energy_fn,
-                    regularizer,
-                    multi_block_masking,
-                    args.reg_weight,
-                );
-                let output = components.forward_step(&input, &shape, &mut rng);
-                print_step(step, &output, lr, args);
+                let mask = multi_block_masking.generate_mask(input_shape, &mut rng);
+                model.try_forward_step_strict(&input, mask, energy_fn, regularizer, args.reg_weight)
             }
         }
+        .with_context(|| format!("training step {step} failed"))?;
+
+        print_step(step, &output, lr, args);
     }
 
     println!("  └────────┴──────────────┴──────────────┴──────────────┴──────────┘");
     println!();
     println!("  Training complete.");
     println!();
+
+    Ok(())
 }
 
-fn print_step(step: usize, output: &jepa_train::JepaForwardOutput<B>, lr: f64, args: &TrainArgs) {
+fn print_step(step: usize, output: &StrictIJepaForwardOutput<B>, lr: f64, args: &TrainArgs) {
     let energy_val: f32 = output.energy.value.clone().into_scalar();
     let reg_val: f32 = output.regularization.clone().into_scalar();
     let total_val: f32 = output.total_loss.clone().into_scalar();
@@ -266,4 +255,85 @@ fn print_banner() {
     println!("  ║  Real training requires a dataset loader.                  ║");
     println!("  ╚══════════════════════════════════════════════════════════════╝");
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn training_input_shape_uses_patch_grid_dimensions() {
+        let vit_config = VitConfig::vit_small_patch16();
+        let shape = training_input_shape(&vit_config);
+
+        assert!(matches!(
+            shape,
+            InputShape::Image {
+                height: 14,
+                width: 14,
+            }
+        ));
+        assert_eq!(shape.total_tokens(), 196);
+
+        let masking = BlockMasking {
+            num_targets: 4,
+            target_scale: (0.15, 0.4),
+            target_aspect_ratio: (0.75, 1.5),
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+
+        for _ in 0..8 {
+            let mask = masking.generate_mask(&shape, &mut rng);
+            assert!(mask
+                .context_indices
+                .iter()
+                .chain(mask.target_indices.iter())
+                .all(|&index| index < shape.total_tokens()));
+        }
+    }
+
+    #[test]
+    fn strict_training_smoke_step_runs_with_tiny_vit() {
+        let vit_config = VitConfig::tiny_test();
+        let input_shape = training_input_shape(&vit_config);
+        let model: IJepa<B> = IJepaConfig {
+            encoder: vit_config.clone(),
+            predictor: TransformerPredictorConfig {
+                encoder_embed_dim: vit_config.embed_dim,
+                predictor_embed_dim: 16,
+                num_layers: 1,
+                num_heads: vit_config.num_heads,
+                max_target_len: input_shape.total_tokens(),
+            },
+        }
+        .init(&DEVICE);
+
+        let input = Tensor::random(
+            [
+                2,
+                vit_config.in_channels,
+                vit_config.image_height,
+                vit_config.image_width,
+            ],
+            burn::tensor::Distribution::Uniform(-1.0, 1.0),
+            &DEVICE,
+        );
+
+        let masking = BlockMasking {
+            num_targets: 2,
+            target_scale: (0.15, 0.4),
+            target_aspect_ratio: (0.75, 1.5),
+        };
+        let mut rng = StdRng::seed_from_u64(123);
+        let mask = masking.generate_mask(&input_shape, &mut rng);
+
+        let output = model
+            .try_forward_step_strict(&input, mask.clone(), &L2Energy, &VICReg::default(), 0.01)
+            .expect("strict synthetic training step should succeed for CLI configs");
+
+        assert_eq!(output.mask.total_tokens, input_shape.total_tokens());
+        assert_eq!(output.predicted.seq_len(), mask.target_indices.len());
+        assert_eq!(output.target.seq_len(), mask.target_indices.len());
+    }
 }
