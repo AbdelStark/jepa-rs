@@ -234,6 +234,10 @@ impl RandomShootingConfig {
     }
 }
 
+/// Floor for the per-dimension standard deviation during CEM distribution
+/// refit, preventing the search from collapsing to a single point.
+const MIN_CEM_STD: f64 = 0.01;
+
 /// Random-shooting planner (Cross-Entropy Method).
 ///
 /// Optimizes action sequences by:
@@ -378,12 +382,14 @@ impl RandomShootingPlanner {
                 })
                 .collect();
 
-            // 3. Sort by cost and select elites
-            costs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            // 3. Sort by cost and select elites.
+            // Use f32::total_cmp so NaN/Inf values sort deterministically
+            // instead of silently corrupting the elite set.
+            costs.sort_by(|a, b| a.1.total_cmp(&b.1));
             let num_elites = self.config.num_elites.min(costs.len());
 
-            // Track best
-            if costs[0].1 < best_cost {
+            // Track best (use total_cmp so NaN is handled consistently)
+            if costs[0].1.total_cmp(&best_cost).is_lt() {
                 best_cost = costs[0].1;
                 let best_idx = costs[0].0;
                 best_actions = candidates[best_idx]
@@ -414,7 +420,7 @@ impl RandomShootingPlanner {
                         .sum::<f64>()
                         / n.max(1.0);
                     mean[t][d] = new_mean;
-                    std[t][d] = new_var.sqrt().max(0.01); // minimum std
+                    std[t][d] = new_var.sqrt().max(MIN_CEM_STD);
                 }
             }
         }
@@ -883,6 +889,50 @@ mod tests {
 
         assert_eq!(result1.cost, result2.cost);
         assert_eq!(result1.cost_history, result2.cost_history);
+    }
+
+    /// Dynamics model that produces NaN output for testing planner robustness.
+    struct NanDynamics;
+
+    impl ActionConditionedPredictor<TestBackend> for NanDynamics {
+        fn predict_next_state(
+            &self,
+            current_state: &Representation<TestBackend>,
+            _action: &Action<TestBackend>,
+        ) -> Representation<TestBackend> {
+            // Return NaN-filled tensor to simulate diverged dynamics
+            let dims = current_state.embeddings.dims();
+            let device = current_state.embeddings.device();
+            Representation::new(Tensor::full(dims, f32::NAN, &device))
+        }
+    }
+
+    #[test]
+    fn test_cem_handles_nan_costs_without_panic() {
+        use rand::SeedableRng;
+        // When dynamics produce NaN, the cost function yields NaN.
+        // The planner must not panic; it should still return a result.
+        // Because every candidate has NaN cost, no candidate ever beats
+        // the initial best_cost (f32::MAX), so best_actions stays empty.
+        let model = WorldModel::new(NanDynamics, L2Cost);
+        let initial = Representation::new(Tensor::zeros([1, 4, 8], &device()));
+        let goal = Representation::new(Tensor::ones([1, 4, 8], &device()));
+
+        let config = RandomShootingConfig {
+            num_candidates: 8,
+            num_iterations: 2,
+            num_elites: 2,
+            init_std: 1.0,
+        };
+        let planner = RandomShootingPlanner::new(config);
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+
+        // Must not panic — NaN costs are sorted deterministically via total_cmp
+        let result = planner.plan(&model, &initial, &goal, 1, 8, &mut rng);
+        // No valid plan found when all costs are NaN
+        assert!(result.actions.is_empty());
+        assert_eq!(result.cost_history.len(), 2);
+        assert_eq!(result.cost, f32::MAX);
     }
 
     proptest! {

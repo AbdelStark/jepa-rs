@@ -85,7 +85,16 @@ impl<B: Backend> HierarchicalJepa<B> {
     ///
     /// The effective stride is the product of all strides up to
     /// and including the given level.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `level_idx >= self.num_levels()`.
     pub fn effective_stride(&self, level_idx: usize) -> usize {
+        assert!(
+            level_idx < self.levels.len(),
+            "level index {level_idx} out of bounds for hierarchy with {} levels",
+            self.levels.len(),
+        );
         self.levels[..=level_idx]
             .iter()
             .map(|l| l.temporal_stride)
@@ -168,6 +177,17 @@ mod tests {
         assert_eq!(reprs.len(), 2);
         assert_eq!(reprs[0].seq_len(), 8);
         assert_eq!(reprs[1].seq_len(), 8); // identity encoder preserves shape
+    }
+
+    #[test]
+    #[should_panic(expected = "level index 3 out of bounds")]
+    fn test_effective_stride_out_of_bounds() {
+        let hjepa = HierarchicalJepa::new(vec![
+            make_level(64, 2),
+            make_level(64, 3),
+            make_level(64, 4),
+        ]);
+        let _ = hjepa.effective_stride(3);
     }
 
     #[test]
