@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Testing strategy for jepa-rs across 4 layers — unit tests, BDD/Gherkin, differential testing against Python, and fuzz testing. Activate when writing any test, discussing test strategy, or debugging test failures.
+description: Testing strategy for jepa-rs across 4 layers — unit tests, BDD/Gherkin, differential parity against Python, and fuzz testing. Activate when writing any test, discussing test strategy, or debugging test failures.
 prerequisites: cargo test must be runnable
 ---
 
@@ -12,28 +12,27 @@ Numerical code is especially error-prone — subtle bugs produce wrong results w
 </purpose>
 
 <context>
-4 test layers defined in SPECIFICATION.md:
+4 test layers:
 
-| Layer | Type         | Framework    | Location                      | Status          |
-|-------|--------------|--------------|-------------------------------|-----------------|
-| 1     | Unit (TDD)   | built-in     | #[cfg(test)] in source        | 88 tests passing |
-| 2     | BDD          | (planned)    | specs/gherkin/                | 27 scenarios written, not wired |
-| 3     | Differential | safetensors  | tests/differential/ (planned) | Not started   |
-| 4     | Fuzz         | libfuzzer    | tests/fuzz/ (planned)         | Not started     |
+| Layer | Type         | Framework    | Location                        | Status                                    |
+|-------|--------------|--------------|-------------------------------- |-------------------------------------------|
+| 1     | Unit (TDD)   | built-in     | `#[cfg(test)]` in source        | 356 tests passing across workspace        |
+| 2     | BDD          | (planned)    | specs/gherkin/                  | 27 scenarios written, not wired           |
+| 3     | Differential | safetensors  | jepa-vision/tests/integration.rs| 3 I-JEPA image fixtures in CI             |
+| 4     | Fuzz         | libfuzzer    | fuzz/                           | masking, gather, energy, checkpoint_parsing|
 
 Test backend: `type TestBackend = burn_ndarray::NdArray<f32>;`
-Dev dependency: burn-ndarray (already in all crate Cargo.toml files)
+Dev dependency: burn-ndarray 0.20.1 (already in all crate Cargo.toml files)
 
-Current test distribution:
-- types.rs: 12 tests (gather, validation, construction)
-- config.rs: 18 tests (validation, presets, builder, serialization)
-- energy.rs: 18 tests (8 unit + 4 proptest families)
-- masking.rs: 14 tests (9 unit + 5 proptest families)
-- collapse.rs: 21 tests (VICReg + BarlowTwins)
-- ema.rs: 27 tests (15 unit + 3 proptest families)
-- encoder.rs: 1 test (trait validation)
-- predictor.rs: 2 tests (trait validation)
-- 6 doc tests (config, energy, masking, collapse, ema)
+CI gates: 80% line coverage floor via `cargo llvm-cov`, fuzz runs 256 iterations per target.
+
+Test distribution by crate:
+- jepa-core: ~99 tests (types, config, energy, masking, collapse, ema, encoder, predictor)
+- jepa-vision: ~72 tests + integration parity tests
+- jepa-world: ~47 tests
+- jepa-train: ~31 tests
+- jepa-compat: ~16 tests
+- jepa (CLI): ~11 tests
 </context>
 
 <procedure>
@@ -46,7 +45,7 @@ Writing unit tests:
    - Happy path with known expected values
    - Edge cases (empty, zero, single-element)
    - Error cases (invalid input → correct error variant)
-   - Invariants (energy >= 0, mask coverage, momentum bounds, etc.)
+   - Invariants (energy >= 0, mask coverage, momentum bounds)
 5. For numerical properties, use proptest:
    ```rust
    use proptest::prelude::*;
@@ -57,14 +56,15 @@ Writing unit tests:
        }
    }
    ```
-6. Run: `cargo test -p jepa-core` (must see all 88+ tests pass)
+6. Run: `cargo test -p [crate]` — all tests must pass
 
-Writing differential tests (when Python references exist):
+Writing differential tests (parity against Python reference):
 
 1. Generate test fixtures from Python: save inputs/outputs as .safetensors
-2. Place in tests/fixtures/[rfc-name]/
-3. Load in Rust test with safetensors crate
-4. Compare with tolerance: assert!((rust_output - python_output).abs() < 1e-5)
+2. Place in tests/fixtures/[name]/
+3. Load in Rust integration test with safetensors crate
+4. Compare with tolerance: `assert!((rust_output - python_output).abs() < 1e-5)`
+5. See `jepa-vision/tests/integration.rs` for the established pattern (ParityFixture)
 </procedure>
 
 <patterns>
@@ -74,8 +74,8 @@ Writing differential tests (when Python references exist):
   — Test tensor shapes explicitly: `assert_eq!(result.dims(), [batch, seq, dim])`
   — Name tests descriptively: `test_[what]_[condition]_[expected]`
   — Use proptest for properties that should hold for any valid input
-  — Study existing tests in energy.rs, collapse.rs, ema.rs for patterns
   — Add doc tests to public types/traits (see config.rs, energy.rs for examples)
+  — Always verify mask preservation through gather operations
 </do>
 <dont>
   — Don't test private functions directly — test through the public API
@@ -83,6 +83,7 @@ Writing differential tests (when Python references exist):
   — Don't skip edge cases — zero-length, single-element, max-size inputs
   — Don't couple tests to specific tensor values that might change with implementation
   — Don't break existing tests when adding new ones
+  — Don't delete proptest-regressions/ files — they capture known edge cases
 </dont>
 </patterns>
 
@@ -107,19 +108,18 @@ proptest! {
 }
 ```
 
-Doc test pattern (from config.rs):
+Differential parity pattern (from jepa-vision/tests/integration.rs):
 
 ```rust
-/// # Example
-/// ```
-/// use jepa_core::config::JepaConfigBuilder;
-/// let config = JepaConfigBuilder::new()
-///     .embed_dim(768)
-///     .num_heads(12)
-///     .build()
-///     .unwrap();
-/// assert_eq!(config.embed_dim, 768);
-/// ```
+struct ParityFixture { /* metadata + config */ }
+
+#[test]
+fn test_strict_image_parity() {
+    let fixture = ParityFixture::load("tests/fixtures/ijepa_strict/");
+    let mask = fixed_image_mask();
+    mask.validate().unwrap();
+    // Run strict forward, compare against fixture output with tolerance
+}
 ```
 </examples>
 
@@ -131,14 +131,15 @@ Doc test pattern (from config.rs):
 | Floating-point assertion fails intermittently | Tolerance too tight | Widen to 1e-5 or 1e-4 for accumulated operations |
 | proptest shrinking takes too long | Input space too large | Add `#[proptest_config(ProptestConfig::with_cases(100))]` |
 | proptest regression file appears | Shrunk failure saved | Check proptest-regressions/ — fix the bug, don't delete the file |
+| Parity test fails in CI | Platform float differences | Use wider tolerance or deterministic seed |
 
 </troubleshooting>
 
 <references>
-— crates/jepa-core/src/energy.rs: Proptest + unit test examples (18 tests)
-— crates/jepa-core/src/collapse.rs: Complex numerical test examples (21 tests)
-— crates/jepa-core/src/ema.rs: Convergence + schedule testing (27 tests)
-— crates/jepa-core/src/config.rs: Builder validation + serialization tests (18 tests)
+— crates/jepa-core/src/energy.rs: Proptest + unit test examples
+— crates/jepa-core/src/collapse.rs: Complex numerical test examples
+— crates/jepa-core/src/ema.rs: Convergence + schedule testing
+— crates/jepa-vision/tests/integration.rs: Differential parity fixture pattern
 — specs/gherkin/features.feature: 27 BDD scenarios with test vectors
-— SPECIFICATION.md: Test vectors embedded in RFC sections
+— fuzz/: Fuzz targets (masking, gather, energy, checkpoint_parsing)
 </references>

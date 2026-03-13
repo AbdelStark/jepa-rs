@@ -1,13 +1,13 @@
 ---
 name: burn-backend
-description: Working with the burn 0.16 ML framework in jepa-rs. Activate when writing tensor operations, implementing neural network modules, dealing with backends, or debugging burn-related compilation errors. Also relevant when choosing between backends (ndarray, wgpu, cuda).
-prerequisites: burn 0.16 workspace dependency
+description: Working with the burn 0.20.1 ML framework in jepa-rs. Activate when writing tensor operations, implementing neural network modules, dealing with backends, or debugging burn-related compilation errors. Also relevant when choosing between backends (ndarray, wgpu).
+prerequisites: burn 0.20.1 workspace dependency
 ---
 
 # Burn Backend
 
 <purpose>
-Guide for using burn 0.16 correctly in this project.
+Guide for using burn 0.20.1 correctly in this project.
 burn is the ML framework — all tensor math, autograd, and model definitions go through it.
 </purpose>
 
@@ -19,11 +19,11 @@ Key burn concepts used in jepa-rs:
 - `AutodiffBackend`: Extension of Backend with gradient tracking. Required for training.
 - Backends available: `burn_ndarray::NdArray` (CPU), `burn_wgpu::Wgpu` (GPU).
 
-Workspace dependencies:
+Workspace dependencies (burn 0.20.1):
 ```toml
-burn = { version = "0.16", features = ["autodiff"] }
-burn-ndarray = "0.16"   # CPU backend (tests + inference)
-burn-wgpu = "0.16"      # GPU backend (training + inference)
+burn = { version = "0.20.1", features = ["autodiff"] }
+burn-ndarray = "0.20.1"   # CPU backend (tests + inference)
+burn-wgpu = "0.20.1"      # GPU backend (training + inference)
 ```
 </context>
 
@@ -65,12 +65,14 @@ Creating tensors in tests:
   — Use `Tensor::from_floats(data, &device)` for test data
   — Use `.clone()` when reusing tensors (burn tensors are reference-counted)
   — Use `burn::tensor::activation::*` for activation functions
+  — Wrap outputs in semantic types: `Representation<B>`, `Energy<B>`
 </do>
 <dont>
   — Don't mix backend types — all tensors in an operation must share the same `B`
   — Don't use `.into_data()` in hot paths — it forces a sync and copy
   — Don't assume tensor memory layout — use burn's API, not raw indexing
   — Don't use `f64` tensors unless precision requires it — `f32` is default
+  — Don't forget `.clone()` before consuming ops — burn consumes tensors
 </dont>
 </patterns>
 
@@ -87,5 +89,6 @@ Creating tensors in tests:
 
 <references>
 — crates/jepa-core/src/types.rs: Tensor wrapper patterns (Representation, Energy)
-— Cargo.toml: Workspace burn dependency configuration
+— crates/jepa-core/src/encoder.rs: Encoder<B> trait definition
+— Cargo.toml: Workspace burn 0.20.1 dependency configuration
 </references>
