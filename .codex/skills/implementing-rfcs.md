@@ -8,33 +8,33 @@ prerequisites: SPECIFICATION.md must be read for the target RFC section
 
 <purpose>
 Turn RFC specifications from SPECIFICATION.md into idiomatic, tested Rust code.
-Core traits are complete in jepa-core. Remaining work is ViT/predictor implementations and outer crates.
+Core traits are complete. Vision, world, train, and compat crates are substantially implemented.
 </purpose>
 
 <context>
 RFC-to-module mapping:
 
-| RFC     | Module(s)                    | Crate        | Status      |
-|---------|------------------------------|--------------|-------------|
-| RFC-001 | types.rs, config.rs          | jepa-core    | DONE (12 + 18 tests) |
-| RFC-002 | encoder.rs                   | jepa-core + jepa-vision | Trait done (1 test), ViT impl needed |
-| RFC-003 | predictor.rs                 | jepa-core    | Trait done (2 tests), cross-attention impl needed |
-| RFC-004 | energy.rs                    | jepa-core    | DONE (18 tests, L2/Cosine/SmoothL1) |
-| RFC-005 | masking.rs                   | jepa-core    | DONE (14 tests, Block/Spatiotemporal/MultiBlock) |
-| RFC-006 | collapse.rs                  | jepa-core    | DONE (21 tests, VICReg/BarlowTwins) |
-| RFC-007 | ema.rs                       | jepa-core    | DONE (27 tests, Ema/CosineMomentumSchedule) |
-| RFC-008 | trainer.rs, schedule.rs, etc | jepa-train   | Stub crate |
-| RFC-009 | action.rs, planner.rs, etc   | jepa-world   | Stub crate |
-| RFC-010 | hierarchy.rs, memory.rs      | jepa-world   | Stub crate |
+| RFC     | Module(s)                      | Crate        | Status                          |
+|---------|--------------------------------|--------------|-------------------------------- |
+| RFC-001 | types.rs, config.rs            | jepa-core    | DONE                            |
+| RFC-002 | encoder.rs, vit.rs             | core + vision| DONE (trait + ViT implementation)|
+| RFC-003 | predictor.rs, image.rs         | core + vision| DONE (trait + TransformerPredictor)|
+| RFC-004 | energy.rs                      | jepa-core    | DONE (L2/Cosine/SmoothL1)      |
+| RFC-005 | masking.rs                     | jepa-core    | DONE (Block/Spatiotemporal/MultiBlock)|
+| RFC-006 | collapse.rs                    | jepa-core    | DONE (VICReg/BarlowTwins)      |
+| RFC-007 | ema.rs                         | jepa-core    | DONE (Ema/CosineMomentumSchedule)|
+| RFC-008 | trainer.rs, schedule.rs, etc   | jepa-train   | DONE (JepaComponents + schedules)|
+| RFC-009 | action.rs, planner.rs, etc     | jepa-world   | DONE (Action/Planner/Cost)     |
+| RFC-010 | hierarchy.rs, memory.rs        | jepa-world   | DONE (HierarchicalJepa/Memory) |
 
-The build compiles cleanly. All 88 unit tests + 6 doc tests pass.
-Next targets: ViT encoder (jepa-vision), cross-attention predictor, training loop.
+The workspace compiles cleanly. All 356 tests pass.
+Remaining work: strict video parity proof, crates.io release, potential ONNX runtime expansion.
 </context>
 
 <procedure>
-1. Read the target RFC section in SPECIFICATION.md. Note the exact type signatures, method signatures, and invariants.
+1. Read the target RFC section in SPECIFICATION.md. Note exact type signatures, method signatures, and invariants.
 2. Read specs/gherkin/features.feature for BDD scenarios related to this RFC.
-3. Check existing implementations in jepa-core/src/ for patterns to follow:
+3. Check existing implementations for patterns to follow:
    - energy.rs: Trait + multiple implementations pattern
    - masking.rs: Strategy trait + block/spatiotemporal/multi-block variants
    - collapse.rs: Regularizer trait + VICReg/BarlowTwins pattern
@@ -46,7 +46,7 @@ Next targets: ViT encoder (jepa-vision), cross-attention predictor, training loo
    - Use proptest for numerical properties (e.g., energy >= 0)
 5. Implement until all tests pass
 6. Run `cargo test -p [crate]` — all existing tests must still pass
-7. Run `cargo clippy --all-targets` — zero warnings
+7. Run `cargo clippy --all-targets -- -D warnings` — zero warnings
 8. Run `cargo fmt -- --check` — must pass
 
 Decision point at step 3: If implementing in an outer crate (jepa-vision, jepa-train), reference jepa-core traits via `jepa_core::` imports. The crate dependencies are already configured.
@@ -60,7 +60,7 @@ Decision point at step 3: If implementing in an outer crate (jepa-vision, jepa-t
   — Include test vectors from the RFC as literal test cases
   — Add `#[derive(Debug, Clone)]` to all public structs
   — Use `thiserror::Error` for error enums
-  — Study the existing implementations (energy.rs, masking.rs, collapse.rs) for patterns
+  — Study the existing implementations for patterns
 </do>
 <dont>
   — Don't implement features beyond what the RFC specifies
@@ -68,6 +68,7 @@ Decision point at step 3: If implementing in an outer crate (jepa-vision, jepa-t
   — Don't hardcode tensor dimensions — derive from config/input
   — Don't skip the TDD loop — tests come before implementation
   — Don't modify existing passing tests without justification
+  — Don't change public trait signatures without human approval
 </dont>
 </patterns>
 
@@ -79,7 +80,6 @@ use burn::tensor::{backend::Backend, Tensor};
 use crate::types::{Representation, Energy};
 
 /// Smooth L1 (Huber) energy function.
-/// See SPECIFICATION.md RFC-004.
 pub struct SmoothL1Energy {
     pub beta: f32,
 }
@@ -110,14 +110,14 @@ impl JepaConfigBuilder {
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | E0432 unresolved import after adding type | Type name doesn't match re-export in lib.rs | Check lib.rs `pub use` statement matches exactly |
-| burn tensor operation not found | Wrong tensor rank or missing Backend bound | Check burn 0.16 API — operations are rank-specific |
-| Test can't construct Representation | Need burn-ndarray in dev-dependencies | Already in jepa-core; check crate-level Cargo.toml for outer crates |
+| burn tensor operation not found | Wrong tensor rank or missing Backend bound | Check burn 0.20.1 API — operations are rank-specific |
+| Test can't construct Representation | Need burn-ndarray in dev-dependencies | Already configured in all crate Cargo.toml files |
 | Existing tests fail after changes | Public API regression | Check that trait signatures haven't changed |
 
 </troubleshooting>
 
 <references>
-— SPECIFICATION.md: Complete RFC archive (1105 lines)
+— SPECIFICATION.md: Complete RFC archive
 — specs/gherkin/features.feature: 27 BDD scenarios with test vectors
 — crates/jepa-core/src/energy.rs: Reference for trait + multiple implementations
 — crates/jepa-core/src/collapse.rs: Reference for complex numerical implementations
