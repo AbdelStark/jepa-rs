@@ -40,7 +40,7 @@ pub mod memory;
 pub mod planner;
 
 pub use action::{Action, ActionConditionedPredictor};
-pub use hierarchy::{HierarchicalJepa, JepaLevel};
+pub use hierarchy::{HierarchicalJepa, HierarchyError, JepaLevel};
 pub use memory::{MemoryError, ShortTermMemory};
 pub use planner::{
     CostFunction, L2Cost, PlanResult, PlanningError, RandomShootingConfig, RandomShootingPlanner,

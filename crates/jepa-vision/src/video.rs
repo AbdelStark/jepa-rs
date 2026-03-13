@@ -28,10 +28,12 @@
 
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;
-use burn::tensor::{backend::Backend, Int, TensorData};
+use burn::tensor::backend::Backend;
 
 use jepa_core::types::{Energy, MaskError, MaskSpec, Representation};
 use jepa_core::{CollapseRegularizer, Encoder, EnergyFn};
+
+use crate::token_ops::gather_token_sequence;
 
 /// Configuration for a V-JEPA video encoder.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -189,30 +191,6 @@ impl<B: Backend> VitVideoEncoder<B> {
         let x = gather_token_sequence(x, visible_indices);
         self.encode_positioned_tokens(x)
     }
-}
-
-fn gather_token_sequence<B: Backend>(tokens: Tensor<B, 3>, indices: &[usize]) -> Tensor<B, 3> {
-    let [batch, seq_len, embed_dim] = tokens.dims();
-    let device = tokens.device();
-
-    if indices.is_empty() {
-        return Tensor::zeros([batch, 0, embed_dim], &device);
-    }
-
-    // Validate that all indices are within bounds before calling select(),
-    // which may panic or produce undefined results on out-of-range indices.
-    for &idx in indices {
-        assert!(
-            idx < seq_len,
-            "gather index {idx} out of bounds for sequence length {seq_len}",
-        );
-    }
-
-    let index_data: Vec<i64> = indices.iter().map(|&index| index as i64).collect();
-    let index_tensor =
-        Tensor::<B, 1, Int>::from_data(TensorData::new(index_data, [indices.len()]), &device);
-
-    tokens.select(1, index_tensor)
 }
 
 impl<B: Backend> Encoder<B> for VitVideoEncoder<B> {
@@ -592,7 +570,7 @@ pub struct VJepa<B: Backend> {
 }
 
 /// Output of a strict masked V-JEPA forward step.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StrictVJepaForwardOutput<B: Backend> {
     /// Prediction energy (main loss signal). Shape: `[1]`
     pub energy: Energy<B>,
@@ -611,7 +589,7 @@ pub struct StrictVJepaForwardOutput<B: Backend> {
 }
 
 /// Errors returned by [`VJepa::try_forward_step_strict`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum StrictVJepaError {
     #[error(transparent)]
     InvalidMask(#[from] MaskError),

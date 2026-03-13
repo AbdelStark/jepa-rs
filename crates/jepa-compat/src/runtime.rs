@@ -135,6 +135,7 @@ type TypedPlan = tract_onnx::tract_core::plan::SimplePlan<TypedFact, Box<dyn Typ
 ///
 /// Wraps a tract-onnx optimized model plan. The model is loaded, validated,
 /// and optimized at construction time so that [`run`](Self::run_f32) is fast.
+#[derive(Clone)]
 pub struct OnnxSession {
     plan: Arc<TypedPlan>,
     info: SessionInfo,
@@ -414,6 +415,7 @@ impl OnnxSession {
 /// println!("Output: [{}, {}, {}]", repr.batch_size(), repr.seq_len(), repr.embed_dim());
 /// # Ok::<(), jepa_compat::runtime::RuntimeError>(())
 /// ```
+#[derive(Clone)]
 pub struct OnnxEncoder {
     session: OnnxSession,
     embed_dim: usize,

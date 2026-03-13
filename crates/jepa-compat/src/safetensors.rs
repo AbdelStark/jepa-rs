@@ -99,7 +99,7 @@ impl LoadedTensor {
 }
 
 /// A collection of loaded tensors from a checkpoint.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Checkpoint {
     /// All loaded tensors, keyed by their burn parameter name.
     pub tensors: HashMap<String, LoadedTensor>,

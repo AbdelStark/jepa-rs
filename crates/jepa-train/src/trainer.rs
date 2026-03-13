@@ -170,18 +170,19 @@ where
         input_shape: &InputShape,
         rng: &mut impl rand::Rng,
     ) -> Result<JepaForwardOutput<B>, JepaForwardError> {
-        // 1. Generate mask
+        // 1. Generate and validate mask
         let mask = self.masking.generate_mask(input_shape, rng);
         mask.validate()?;
 
-        // The generic encoder trait doesn't let the trainer remove masked tokens
-        // before encoder attention runs, so this orchestration layer filters
-        // tokens immediately after encoding. Encoder-specific training code
-        // should prefer pre-encoder masking when strict JEPA semantics matter.
+        // 2. Encode full input with context encoder (gradients flow).
+        //    The generic encoder trait doesn't let the trainer remove masked tokens
+        //    before encoder attention runs, so this orchestration layer filters
+        //    tokens immediately after encoding. Encoder-specific training code
+        //    should prefer pre-encoder masking when strict JEPA semantics matter.
         let context_repr = self.context_encoder.encode(input);
         let context_slice = context_repr.gather(&mask.context_indices);
 
-        // 3. Encode full input with target encoder (no gradient update)
+        // 3. Encode full input with target encoder (no gradient update).
         //    Gradient detachment is the caller's responsibility via burn's autodiff.
         let target_repr = self.target_encoder.encode(input);
         let target_slice = target_repr.gather(&mask.target_indices);
@@ -196,10 +197,10 @@ where
             .predictor
             .predict(&context_slice, &target_positions, None);
 
-        // 6. Compute energy (prediction loss)
+        // 5. Compute energy (prediction loss)
         let energy = self.energy_fn.compute(&predicted, &target_slice);
 
-        // 7. Compute collapse prevention regularization
+        // 6. Compute collapse prevention regularization
         //    Flatten to [batch * seq_len, embed_dim] for VICReg
         let embed_dim = target_slice.embed_dim();
         let pred_flat = predicted
@@ -212,7 +213,7 @@ where
             .reshape([batch * num_targets, embed_dim]);
         let regularization = self.regularizer.loss(&pred_flat, &target_flat);
 
-        // 8. Combine losses
+        // 7. Combine losses
         let total_loss = energy.value.clone() + regularization.clone() * self.reg_weight;
 
         Ok(JepaForwardOutput {

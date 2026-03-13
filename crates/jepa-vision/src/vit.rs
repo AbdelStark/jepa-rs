@@ -28,13 +28,14 @@
 
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;
-use burn::tensor::{backend::Backend, Int, TensorData};
+use burn::tensor::backend::Backend;
 
 use jepa_core::types::Representation;
 use jepa_core::Encoder;
 
 use crate::patch::{PatchEmbedding, PatchEmbeddingConfig};
 use crate::rope::{RotaryPositionEncoding2D, RotaryPositionEncoding2DConfig};
+use crate::token_ops::gather_token_sequence;
 
 /// Configuration for a Vision Transformer encoder.
 ///
@@ -307,30 +308,6 @@ impl<B: Backend> VitEncoder<B> {
         let x = gather_token_sequence(x, visible_indices);
         self.encode_positioned_tokens(x)
     }
-}
-
-fn gather_token_sequence<B: Backend>(tokens: Tensor<B, 3>, indices: &[usize]) -> Tensor<B, 3> {
-    let [batch, seq_len, embed_dim] = tokens.dims();
-    let device = tokens.device();
-
-    if indices.is_empty() {
-        return Tensor::zeros([batch, 0, embed_dim], &device);
-    }
-
-    // Validate that all indices are within bounds before calling select(),
-    // which may panic or produce undefined results on out-of-range indices.
-    for &idx in indices {
-        assert!(
-            idx < seq_len,
-            "gather index {idx} out of bounds for sequence length {seq_len}",
-        );
-    }
-
-    let index_data: Vec<i64> = indices.iter().map(|&index| index as i64).collect();
-    let index_tensor =
-        Tensor::<B, 1, Int>::from_data(TensorData::new(index_data, [indices.len()]), &device);
-
-    tokens.select(1, index_tensor)
 }
 
 impl<B: Backend> Encoder<B> for VitEncoder<B> {

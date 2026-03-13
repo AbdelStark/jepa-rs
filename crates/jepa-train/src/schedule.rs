@@ -105,7 +105,7 @@ impl LrSchedule for WarmupCosineSchedule {
 }
 
 /// Constant learning rate (for baselines and testing).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ConstantSchedule {
     /// The constant learning rate.
     pub lr: f64,

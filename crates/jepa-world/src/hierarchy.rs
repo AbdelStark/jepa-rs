@@ -97,18 +97,36 @@ impl<B: Backend> HierarchicalJepa<B> {
     ///
     /// # Panics
     ///
-    /// Panics if `level_idx >= self.num_levels()`.
+    /// Panics if `level_idx >= self.num_levels()`. Use
+    /// [`try_effective_stride`](Self::try_effective_stride) when the index
+    /// comes from caller-controlled input.
     pub fn effective_stride(&self, level_idx: usize) -> usize {
-        assert!(
-            level_idx < self.levels.len(),
-            "level index {level_idx} out of bounds for hierarchy with {} levels",
-            self.levels.len(),
-        );
-        self.levels[..=level_idx]
+        self.try_effective_stride(level_idx).unwrap_or_else(|e| {
+            panic!("{e}");
+        })
+    }
+
+    /// Get the temporal stride at a specific level, returning an error
+    /// if the index is out of bounds.
+    pub fn try_effective_stride(&self, level_idx: usize) -> Result<usize, HierarchyError> {
+        if level_idx >= self.levels.len() {
+            return Err(HierarchyError::LevelOutOfBounds {
+                index: level_idx,
+                num_levels: self.levels.len(),
+            });
+        }
+        Ok(self.levels[..=level_idx]
             .iter()
             .map(|l| l.temporal_stride)
-            .product()
+            .product())
     }
+}
+
+/// Errors from hierarchy operations.
+#[derive(Debug, thiserror::Error)]
+pub enum HierarchyError {
+    #[error("level index {index} out of bounds for hierarchy with {num_levels} levels")]
+    LevelOutOfBounds { index: usize, num_levels: usize },
 }
 
 #[cfg(test)]
