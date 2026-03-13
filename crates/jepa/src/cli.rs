@@ -163,11 +163,11 @@ pub enum RegularizerChoice {
 
 #[derive(Parser)]
 pub struct EncodeArgs {
-    /// Path to checkpoint (.safetensors)
+    /// Path to model file (.safetensors or .onnx)
     #[arg(short, long)]
     pub model: PathBuf,
 
-    /// Architecture preset (must match the checkpoint)
+    /// Architecture preset (used for burn-native models, ignored for .onnx)
     #[arg(short, long, default_value = "vit-base-16")]
     pub preset: ArchPreset,
 

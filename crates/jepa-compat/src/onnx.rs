@@ -2,8 +2,9 @@
 //!
 //! This module uses the `tract-onnx` protobuf parser to extract
 //! metadata and weight initializers from `.onnx` files **without**
-//! executing the computation graph. For graph execution, see the
-//! [`crate::runtime`] module.
+//! executing the computation graph. For graph execution, see
+//! [`crate::runtime::OnnxSession`]. For a burn `Encoder<B>` wrapper,
+//! see [`crate::runtime::OnnxEncoder`].
 //!
 //! Two primary use cases:
 //!
