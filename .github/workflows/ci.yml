@@ -72,7 +72,7 @@ jobs:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
-      - run: cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only --ignore-filename-regex '(tui/(ui|event|mod)\.rs|main\.rs)$'
+      - run: cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only --ignore-filename-regex '(tui/(ui|app|event|mod)\.rs|main\.rs)$'
 
   bench-smoke:
     name: Bench Smoke
@@ -116,13 +116,13 @@ jobs:
         with:
           tool: cargo-fuzz
       - working-directory: fuzz
-        run: cargo fuzz run masking -- -runs=256
+        run: cargo fuzz run masking --target x86_64-unknown-linux-gnu -- -runs=256
       - working-directory: fuzz
-        run: cargo fuzz run gather -- -runs=256
+        run: cargo fuzz run gather --target x86_64-unknown-linux-gnu -- -runs=256
       - working-directory: fuzz
-        run: cargo fuzz run energy -- -runs=256
+        run: cargo fuzz run energy --target x86_64-unknown-linux-gnu -- -runs=256
       - working-directory: fuzz
-        run: cargo fuzz run checkpoint_parsing -- -runs=256
+        run: cargo fuzz run checkpoint_parsing --target x86_64-unknown-linux-gnu -- -runs=256
 
   audit:
     name: Security Audit
