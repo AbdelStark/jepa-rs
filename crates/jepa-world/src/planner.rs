@@ -110,7 +110,7 @@ impl<B: Backend> CostFunction<B> for L2Cost {
     /// the caller controls the trajectory contents.
     fn total_cost(&self, trajectory: &[Representation<B>], goal: &Representation<B>) -> Energy<B> {
         self.try_total_cost(trajectory, goal)
-            .expect("trajectory must not be empty")
+            .expect("CostFunction::total_cost requires a non-empty trajectory; use try_total_cost for error handling")
     }
 }
 
@@ -319,7 +319,10 @@ impl RandomShootingPlanner {
         rng: &mut impl rand::Rng,
     ) -> PlanResult<B> {
         self.try_plan(world_model, initial_state, goal, horizon, action_dim, rng)
-            .expect("planner configuration and dimensions must be valid")
+            .expect(
+                "RandomShootingPlanner::plan failed — horizon, action_dim, candidates, \
+                 iterations, and elites must all be > 0; use try_plan for error handling",
+            )
     }
 
     /// Plan an action sequence with typed error reporting for invalid inputs.
@@ -548,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "trajectory must not be empty")]
+    #[should_panic(expected = "CostFunction::total_cost requires a non-empty trajectory")]
     fn test_l2_cost_empty_trajectory_panics() {
         let cost = L2Cost;
         let goal = Representation::<TestBackend>::new(Tensor::ones([1, 4, 8], &device()));

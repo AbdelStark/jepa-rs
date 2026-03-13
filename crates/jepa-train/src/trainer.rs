@@ -157,8 +157,10 @@ where
         input_shape: &InputShape,
         rng: &mut impl rand::Rng,
     ) -> JepaForwardOutput<B> {
-        self.try_forward_step(input, input_shape, rng)
-            .expect("masking strategy must produce a valid mask")
+        self.try_forward_step(input, input_shape, rng).expect(
+            "JepaComponents::forward_step failed — masking strategy produced an invalid \
+                 mask; use try_forward_step for error handling",
+        )
     }
 
     /// Execute a single JEPA training step with typed mask validation.

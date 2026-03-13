@@ -508,25 +508,39 @@ impl OnnxEncoder {
 impl<B: burn::tensor::backend::Backend> jepa_core::Encoder<B> for OnnxEncoder {
     type Input = burn::tensor::Tensor<B, 4>;
 
+    /// Encode a batch of images through the ONNX model.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if:
+    /// - The input tensor cannot be converted to f32 data (invariant violation:
+    ///   burn tensors should always be extractable).
+    /// - ONNX inference fails at runtime (e.g., the model is incompatible with
+    ///   the input shape). Use [`OnnxEncoder::run_raw`] for a fallible alternative.
+    /// - The ONNX model produces output with rank other than 2 or 3.
+    ///
+    /// The `Encoder` trait does not support fallible encoding, so these panics
+    /// are unavoidable at the trait boundary. Validate inputs before calling.
     fn encode(&self, input: &burn::tensor::Tensor<B, 4>) -> jepa_core::Representation<B> {
         let dims = input.dims();
         let device = input.device();
         let batch = dims[0];
 
-        // Extract f32 data from the input tensor.
+        // Invariant: burn tensors are always extractable to their element type.
         let input_data: Vec<f32> = input
             .clone()
             .reshape([dims.iter().product::<usize>()])
             .to_data()
             .to_vec()
-            .expect("failed to extract f32 data from input tensor");
+            .expect("burn tensor extraction to f32 failed — this is a burn backend bug");
 
-        // Run ONNX inference — batch-1 loop when the model expects batch=1.
+        // Tract does not reliably support dynamic batch sizes, so we run
+        // batch-1 inference in a loop and concatenate results when batch > 1.
         if batch == 1 {
             let output = self
                 .session
                 .run_f32(&[dims[0], dims[1], dims[2], dims[3]], &input_data)
-                .expect("ONNX inference failed");
+                .expect("ONNX inference failed — verify the model accepts the input shape");
 
             let out_shape = &output.shape;
             let tensor = burn::tensor::Tensor::<B, 1>::from_data(
@@ -534,18 +548,20 @@ impl<B: burn::tensor::backend::Backend> jepa_core::Encoder<B> for OnnxEncoder {
                 &device,
             );
 
-            if out_shape.len() == 3 {
-                let tensor = tensor.reshape([out_shape[0], out_shape[1], out_shape[2]]);
-                jepa_core::Representation::new(tensor)
-            } else if out_shape.len() == 2 {
-                // [batch, embed_dim] → [batch, 1, embed_dim]
-                let tensor = tensor.reshape([out_shape[0], 1, out_shape[1]]);
-                jepa_core::Representation::new(tensor)
-            } else {
-                panic!(
-                    "unexpected ONNX output rank {}: expected 2 or 3",
-                    out_shape.len()
-                );
+            match out_shape.len() {
+                3 => {
+                    let tensor = tensor.reshape([out_shape[0], out_shape[1], out_shape[2]]);
+                    jepa_core::Representation::new(tensor)
+                }
+                2 => {
+                    // [batch, embed_dim] → [batch, 1, embed_dim]
+                    let tensor = tensor.reshape([out_shape[0], 1, out_shape[1]]);
+                    jepa_core::Representation::new(tensor)
+                }
+                rank => panic!(
+                    "ONNX model output has rank {rank}, expected 2 ([batch, embed_dim]) \
+                     or 3 ([batch, tokens, embed_dim])"
+                ),
             }
         } else {
             // Process each batch element individually and concatenate.
@@ -561,7 +577,9 @@ impl<B: burn::tensor::backend::Backend> jepa_core::Encoder<B> for OnnxEncoder {
                 let output = self
                     .session
                     .run_f32(&[1, dims[1], dims[2], dims[3]], single_input)
-                    .expect("ONNX inference failed");
+                    .unwrap_or_else(|e| {
+                        panic!("ONNX inference failed on batch element {b}/{batch}: {e}")
+                    });
 
                 if b == 0 {
                     out_tokens = if output.shape.len() == 3 {

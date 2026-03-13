@@ -168,7 +168,8 @@ impl<B: Backend> Predictor<B> for TransformerPredictor<B> {
         _latent: Option<&Tensor<B, 2>>,
     ) -> Representation<B> {
         self.try_predict(context, target_positions).expect(
-            "target positions must match the context batch and stay within predictor capacity",
+            "TransformerPredictor::predict failed — target positions must match the context \
+             batch size and not exceed max_target_len; use try_predict for error handling",
         )
     }
 }
@@ -451,7 +452,11 @@ impl<B: Backend> IJepa<B> {
         CR: CollapseRegularizer<B>,
     {
         self.try_forward_step_strict(images, mask, energy_fn, regularizer, reg_weight)
-            .expect("strict I-JEPA forward step requires a valid mask and predictor positions within capacity")
+            .expect(
+                "IJepa::forward_step_strict failed — mask must be valid (disjoint, non-empty) \
+                 and target count must not exceed predictor capacity; \
+                 use try_forward_step_strict for error handling",
+            )
     }
 
     /// Execute a strict masked I-JEPA forward step with typed error reporting.
