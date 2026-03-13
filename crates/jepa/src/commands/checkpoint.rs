@@ -35,18 +35,19 @@ pub fn run(args: CheckpointArgs) -> Result<()> {
         println!("  ╠══════════════════════════════════════════════════════════════╣");
 
         for key in &keys {
-            let t = &checkpoint.tensors[*key];
-            let numel: usize = t.shape.iter().product();
-            total_params += numel;
-            total_bytes += numel * 4; // f32
+            if let Some(t) = checkpoint.tensors.get(*key) {
+                let numel: usize = t.shape.iter().product();
+                total_params += numel;
+                total_bytes += numel * 4; // f32
 
-            let shape_str = format_shape(&t.shape);
-            println!(
-                "  ║ {:<34} {:<12} {:>10} ║",
-                truncate(key, 34),
-                shape_str,
-                format_number(numel),
-            );
+                let shape_str = format_shape(&t.shape);
+                println!(
+                    "  ║ {:<34} {:<12} {:>10} ║",
+                    truncate(key, 34),
+                    shape_str,
+                    format_number(numel),
+                );
+            }
         }
     } else {
         // Summary by layer groups
@@ -54,7 +55,9 @@ pub fn run(args: CheckpointArgs) -> Result<()> {
             std::collections::BTreeMap::new();
 
         for key in &keys {
-            let t = &checkpoint.tensors[*key];
+            let Some(t) = checkpoint.tensors.get(*key) else {
+                continue;
+            };
             let numel: usize = t.shape.iter().product();
             total_params += numel;
             total_bytes += numel * 4;

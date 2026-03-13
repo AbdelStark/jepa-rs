@@ -16,8 +16,7 @@ pub fn run(args: InspectArgs) -> Result<()> {
         "safetensors" => inspect_safetensors(path),
         "onnx" => inspect_onnx(path),
         _ => {
-            eprintln!("Unknown file extension '.{ext}'. Expected .safetensors or .onnx");
-            std::process::exit(1);
+            anyhow::bail!("Unknown file extension '.{ext}'. Expected .safetensors or .onnx");
         }
     }
 }
@@ -44,14 +43,15 @@ fn inspect_safetensors(path: &Path) -> Result<()> {
     keys.sort();
 
     for key in keys.iter().take(20) {
-        let t = &checkpoint.tensors[*key];
-        let numel: usize = t.shape.iter().product();
-        total_params += numel;
-        println!(
-            "  │  {:<36} {:>22} │",
-            truncate(key, 36),
-            format_shape(&t.shape)
-        );
+        if let Some(t) = checkpoint.tensors.get(*key) {
+            let numel: usize = t.shape.iter().product();
+            total_params += numel;
+            println!(
+                "  │  {:<36} {:>22} │",
+                truncate(key, 36),
+                format_shape(&t.shape)
+            );
+        }
     }
     if keys.len() > 20 {
         println!(
@@ -62,9 +62,10 @@ fn inspect_safetensors(path: &Path) -> Result<()> {
 
     // Sum remaining params
     for key in keys.iter().skip(20) {
-        let t = &checkpoint.tensors[*key];
-        let numel: usize = t.shape.iter().product();
-        total_params += numel;
+        if let Some(t) = checkpoint.tensors.get(*key) {
+            let numel: usize = t.shape.iter().product();
+            total_params += numel;
+        }
     }
 
     println!("  ├──────────────────────────────────────────────────────────────┤");

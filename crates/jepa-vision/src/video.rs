@@ -178,11 +178,20 @@ impl<B: Backend> VitVideoEncoder<B> {
 }
 
 fn gather_token_sequence<B: Backend>(tokens: Tensor<B, 3>, indices: &[usize]) -> Tensor<B, 3> {
-    let [batch, _seq_len, embed_dim] = tokens.dims();
+    let [batch, seq_len, embed_dim] = tokens.dims();
     let device = tokens.device();
 
     if indices.is_empty() {
         return Tensor::zeros([batch, 0, embed_dim], &device);
+    }
+
+    // Validate that all indices are within bounds before calling select(),
+    // which may panic or produce undefined results on out-of-range indices.
+    for &idx in indices {
+        assert!(
+            idx < seq_len,
+            "gather index {idx} out of bounds for sequence length {seq_len}",
+        );
     }
 
     let index_data: Vec<i64> = indices.iter().map(|&index| index as i64).collect();

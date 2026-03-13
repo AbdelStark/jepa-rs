@@ -75,15 +75,6 @@ pub trait ActionConditionedPredictor<B: Backend> {
     ) -> Representation<B>;
 }
 
-/// Errors from world model operations.
-#[derive(Debug, thiserror::Error)]
-pub enum WorldModelError {
-    #[error("batch size mismatch: state has {state} but action has {action}")]
-    BatchMismatch { state: usize, action: usize },
-    #[error("empty action sequence")]
-    EmptyActions,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

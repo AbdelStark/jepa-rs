@@ -65,7 +65,10 @@ pub fn run(args: EncodeArgs) -> Result<()> {
         let flat = repr.embeddings.reshape([shape[0] * shape[1], shape[2]]);
         let show_dims = embed_dim.min(8);
         let first_token = flat.slice([0..1, 0..show_dims]);
-        let vals: Vec<f32> = first_token.to_data().to_vec().unwrap();
+        let vals: Vec<f32> = first_token
+            .to_data()
+            .to_vec()
+            .map_err(|e| anyhow::anyhow!("failed to read tensor data: {e}"))?;
         print!("    First token (first {} dims): [", vals.len());
         for (j, v) in vals.iter().enumerate() {
             if j > 0 {
