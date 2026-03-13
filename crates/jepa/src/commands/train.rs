@@ -16,9 +16,7 @@ use jepa_core::{
     L2Energy, MaskingStrategy, MultiBlockMasking, SmoothL1Energy, VICReg,
 };
 use jepa_train::{LrSchedule, WarmupCosineSchedule};
-use jepa_vision::image::{
-    IJepa, IJepaConfig, StrictIJepaForwardOutput, TransformerPredictorConfig,
-};
+use jepa_vision::image::{IJepa, IJepaConfig, TransformerPredictorConfig};
 use jepa_vision::vit::VitConfig;
 
 use crate::cli::{ArchPreset, EnergyChoice, MaskingChoice, RegularizerChoice, TrainArgs};
@@ -29,9 +27,121 @@ const DEFAULT_RGB_MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const DEFAULT_RGB_STD: [f32; 3] = [0.229, 0.224, 0.225];
 const SUPPORTED_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];
 
-pub fn run(args: TrainArgs) -> Result<()> {
-    println!();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TrainSourceKind {
+    Synthetic,
+    Safetensors,
+    ImageFolder,
+}
 
+#[derive(Debug, Clone)]
+pub(crate) struct TrainRunSummary {
+    pub source_kind: TrainSourceKind,
+    pub source_count: Option<usize>,
+    pub source_description: String,
+    pub preset: ArchPreset,
+    pub embed_dim: usize,
+    pub patch_size: (usize, usize),
+    pub image_size: (usize, usize),
+    pub num_patches: usize,
+    pub steps: usize,
+    pub warmup: usize,
+    pub learning_rate: f64,
+    pub batch_size: usize,
+    pub masking: MaskingChoice,
+    pub energy: EnergyChoice,
+    pub regularizer: RegularizerChoice,
+    pub reg_weight: f64,
+    pub ema_momentum: f64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TrainStepMetrics {
+    pub step: usize,
+    pub total_steps: usize,
+    pub energy: f64,
+    pub regularization: f64,
+    pub total_loss: f64,
+    pub learning_rate: f64,
+}
+
+pub(crate) trait TrainReporter {
+    fn on_run_started(&mut self, _summary: &TrainRunSummary) {}
+
+    fn on_step(&mut self, _metrics: &TrainStepMetrics) {}
+
+    fn on_run_complete(&mut self, _summary: &TrainRunSummary) {}
+}
+
+struct TerminalReporter {
+    log_interval: usize,
+}
+
+impl TerminalReporter {
+    fn new(log_interval: usize) -> Self {
+        Self { log_interval }
+    }
+}
+
+impl TrainReporter for TerminalReporter {
+    fn on_run_started(&mut self, summary: &TrainRunSummary) {
+        println!();
+        print_banner(summary);
+
+        let (patch_h, patch_w) = summary.patch_size;
+        let (image_h, image_w) = summary.image_size;
+
+        println!("  Architecture:   {:?}", summary.preset);
+        println!("  Embed dim:      {}", summary.embed_dim);
+        println!("  Patch size:     {patch_h}x{patch_w}");
+        println!("  Image size:     {image_h}x{image_w}");
+        println!("  Num patches:    {}", summary.num_patches);
+        println!("  Steps:          {}", summary.steps);
+        println!("  Warmup:         {}", summary.warmup);
+        println!("  LR:             {}", summary.learning_rate);
+        println!("  Batch size:     {}", summary.batch_size);
+        println!("  Masking:        {:?}", summary.masking);
+        println!("  Energy:         {:?}", summary.energy);
+        println!("  Regularizer:    {:?}", summary.regularizer);
+        println!("  Reg weight:     {}", summary.reg_weight);
+        println!("  EMA momentum:   {}", summary.ema_momentum);
+        println!("  Data source:    {}", summary.source_description);
+        println!();
+        println!("  ┌────────┬──────────────┬──────────────┬──────────────┬──────────┐");
+        println!("  │  Step  │    Energy    │     Reg      │  Total Loss  │    LR    │");
+        println!("  ├────────┼──────────────┼──────────────┼──────────────┼──────────┤");
+    }
+
+    fn on_step(&mut self, metrics: &TrainStepMetrics) {
+        if metrics.step % self.log_interval == 0 || metrics.step + 1 == metrics.total_steps {
+            println!(
+                "  │ {:>5}  │ {:>12.6} │ {:>12.6} │ {:>12.6} │ {:>8.2e} │",
+                metrics.step,
+                metrics.energy,
+                metrics.regularization,
+                metrics.total_loss,
+                metrics.learning_rate,
+            );
+        }
+    }
+
+    fn on_run_complete(&mut self, _summary: &TrainRunSummary) {
+        println!("  └────────┴──────────────┴──────────────┴──────────────┴──────────┘");
+        println!();
+        println!("  Training complete.");
+        println!();
+    }
+}
+
+pub fn run(args: TrainArgs) -> Result<()> {
+    let mut reporter = TerminalReporter::new(args.log_interval);
+    run_with_reporter(args, &mut reporter)
+}
+
+pub(crate) fn run_with_reporter<R>(args: TrainArgs, reporter: &mut R) -> Result<()>
+where
+    R: TrainReporter,
+{
     let vit_config = match args.preset {
         ArchPreset::VitBase16 => VitConfig::vit_base_patch16(),
         ArchPreset::VitSmall16 => VitConfig::vit_small_patch16(),
@@ -40,38 +150,36 @@ pub fn run(args: TrainArgs) -> Result<()> {
     };
 
     let mut batch_source = BatchSource::from_args(&args, &vit_config)?;
-    print_banner(&batch_source);
 
     let embed_dim = vit_config.embed_dim;
     let mask_shape = training_input_shape(&vit_config);
-    let (ph, pw) = vit_config.patch_size;
-    let num_patches = mask_shape.total_tokens();
-    let image_h = vit_config.image_height;
-    let image_w = vit_config.image_width;
-
-    println!("  Architecture:   {:?}", args.preset);
-    println!("  Embed dim:      {embed_dim}");
-    println!("  Patch size:     {ph}x{pw}");
-    println!("  Image size:     {image_h}x{image_w}");
-    println!("  Num patches:    {num_patches}");
-    println!("  Steps:          {}", args.steps);
-    println!("  Warmup:         {}", args.warmup);
-    println!("  LR:             {}", args.lr);
-    println!("  Batch size:     {}", args.batch_size);
-    println!("  Masking:        {:?}", args.masking);
-    println!("  Energy:         {:?}", args.energy);
-    println!("  Regularizer:    {:?}", args.regularizer);
-    println!("  Reg weight:     {}", args.reg_weight);
-    println!("  EMA momentum:   {}", args.ema_momentum);
-    println!("  Data source:    {}", batch_source.describe());
-    println!();
+    let summary = TrainRunSummary {
+        source_kind: batch_source.kind(),
+        source_count: batch_source.sample_count(),
+        source_description: batch_source.describe(),
+        preset: args.preset.clone(),
+        embed_dim,
+        patch_size: vit_config.patch_size,
+        image_size: (vit_config.image_height, vit_config.image_width),
+        num_patches: mask_shape.total_tokens(),
+        steps: args.steps,
+        warmup: args.warmup,
+        learning_rate: args.lr,
+        batch_size: args.batch_size,
+        masking: args.masking.clone(),
+        energy: args.energy.clone(),
+        regularizer: args.regularizer.clone(),
+        reg_weight: args.reg_weight,
+        ema_momentum: args.ema_momentum,
+    };
+    reporter.on_run_started(&summary);
 
     let predictor_config = TransformerPredictorConfig {
         encoder_embed_dim: embed_dim,
         predictor_embed_dim: embed_dim / 4,
         num_layers: 6,
         num_heads: vit_config.num_heads,
-        max_target_len: num_patches,
+        max_target_len: summary.num_patches,
     };
 
     let mut model: IJepa<B> = IJepaConfig {
@@ -107,6 +215,7 @@ pub fn run(args: TrainArgs) -> Result<()> {
             &multi_block_masking,
             &mask_shape,
             &mut batch_source,
+            reporter,
         )?,
         (EnergyChoice::L2, RegularizerChoice::BarlowTwins) => run_loop(
             &args,
@@ -120,6 +229,7 @@ pub fn run(args: TrainArgs) -> Result<()> {
             &multi_block_masking,
             &mask_shape,
             &mut batch_source,
+            reporter,
         )?,
         (EnergyChoice::Cosine, RegularizerChoice::Vicreg) => run_loop(
             &args,
@@ -133,6 +243,7 @@ pub fn run(args: TrainArgs) -> Result<()> {
             &multi_block_masking,
             &mask_shape,
             &mut batch_source,
+            reporter,
         )?,
         (EnergyChoice::Cosine, RegularizerChoice::BarlowTwins) => run_loop(
             &args,
@@ -146,6 +257,7 @@ pub fn run(args: TrainArgs) -> Result<()> {
             &multi_block_masking,
             &mask_shape,
             &mut batch_source,
+            reporter,
         )?,
         (EnergyChoice::SmoothL1, RegularizerChoice::Vicreg) => run_loop(
             &args,
@@ -159,6 +271,7 @@ pub fn run(args: TrainArgs) -> Result<()> {
             &multi_block_masking,
             &mask_shape,
             &mut batch_source,
+            reporter,
         )?,
         (EnergyChoice::SmoothL1, RegularizerChoice::BarlowTwins) => run_loop(
             &args,
@@ -172,11 +285,13 @@ pub fn run(args: TrainArgs) -> Result<()> {
             &multi_block_masking,
             &mask_shape,
             &mut batch_source,
+            reporter,
         )?,
     };
 
     // Keep the final model alive until the end of the command.
     let _ = model;
+    reporter.on_run_complete(&summary);
 
     Ok(())
 }
@@ -202,6 +317,7 @@ fn run_loop<EF, CR, O>(
     multi_block_masking: &MultiBlockMasking,
     input_shape: &InputShape,
     batch_source: &mut BatchSource,
+    reporter: &mut impl TrainReporter,
 ) -> Result<IJepa<B>>
 where
     EF: EnergyFn<B>,
@@ -210,10 +326,6 @@ where
 {
     let mut rng = rand::rng();
     let lr_schedule = WarmupCosineSchedule::new(args.lr, args.warmup, args.steps);
-
-    println!("  ┌────────┬──────────────┬──────────────┬──────────────┬──────────┐");
-    println!("  │  Step  │    Energy    │     Reg      │  Total Loss  │    LR    │");
-    println!("  ├────────┼──────────────┼──────────────┼──────────────┼──────────┤");
 
     for step in 0..args.steps {
         let lr = lr_schedule.get_lr(step);
@@ -233,7 +345,14 @@ where
         }
         .with_context(|| format!("training step {step} failed"))?;
 
-        print_step(step, &output, lr, args);
+        reporter.on_step(&TrainStepMetrics {
+            step,
+            total_steps: args.steps,
+            energy: f64::from(output.energy.value.clone().into_scalar()),
+            regularization: f64::from(output.regularization.clone().into_scalar()),
+            total_loss: f64::from(output.total_loss.clone().into_scalar()),
+            learning_rate: lr,
+        });
 
         let grads = GradientsParams::from_grads(output.total_loss.backward(), &model);
         model = optimizer.step(lr, model, grads);
@@ -244,52 +363,34 @@ where
             .no_grad();
     }
 
-    println!("  └────────┴──────────────┴──────────────┴──────────────┴──────────┘");
-    println!();
-    println!("  Training complete.");
-    println!();
-
     Ok(model)
 }
 
-fn print_step(step: usize, output: &StrictIJepaForwardOutput<B>, lr: f64, args: &TrainArgs) {
-    let energy_val: f32 = output.energy.value.clone().into_scalar();
-    let reg_val: f32 = output.regularization.clone().into_scalar();
-    let total_val: f32 = output.total_loss.clone().into_scalar();
-
-    if step % args.log_interval == 0 || step == args.steps - 1 {
-        println!(
-            "  │ {:>5}  │ {:>12.6} │ {:>12.6} │ {:>12.6} │ {:>8.2e} │",
-            step, energy_val, reg_val, total_val, lr,
-        );
-    }
-}
-
-fn print_banner(batch_source: &BatchSource) {
+fn print_banner(summary: &TrainRunSummary) {
     println!("  ╔══════════════════════════════════════════════════════════════╗");
-    match batch_source {
-        BatchSource::Synthetic { .. } => {
+    match summary.source_kind {
+        TrainSourceKind::Synthetic => {
             println!("  ║            JEPA Training — Synthetic Demo                  ║");
             println!("  ║                                                            ║");
             println!("  ║  Optimizer and EMA are active on synthetic random data.    ║");
             println!("  ║  Pass --dataset-dir or --dataset for real data.            ║");
         }
-        BatchSource::Safetensors(dataset) => {
+        TrainSourceKind::Safetensors => {
             println!("  ║          JEPA Training — Safetensors Dataset               ║");
             println!("  ║                                                            ║");
             println!("  ║  Strict masking, AdamW, and EMA are active.                ║");
             println!(
                 "  ║  Loaded {:>5} image tensor(s) from safetensors dataset.     ║",
-                dataset.num_samples
+                summary.source_count.unwrap_or(0)
             );
         }
-        BatchSource::ImageFolder(dataset) => {
+        TrainSourceKind::ImageFolder => {
             println!("  ║           JEPA Training — Image Folder Mode                ║");
             println!("  ║                                                            ║");
             println!("  ║  Strict masking, AdamW, and EMA are active.                ║");
             println!(
                 "  ║  Loaded {:>5} image file(s) with deterministic prep.        ║",
-                dataset.num_samples()
+                summary.source_count.unwrap_or(0)
             );
         }
     }
@@ -458,6 +559,22 @@ impl BatchSource {
                 dataset.crop_size,
                 if dataset.shuffle { ", shuffled" } else { "" }
             ),
+        }
+    }
+
+    fn kind(&self) -> TrainSourceKind {
+        match self {
+            Self::Synthetic { .. } => TrainSourceKind::Synthetic,
+            Self::Safetensors(_) => TrainSourceKind::Safetensors,
+            Self::ImageFolder(_) => TrainSourceKind::ImageFolder,
+        }
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        match self {
+            Self::Synthetic { .. } => None,
+            Self::Safetensors(dataset) => Some(dataset.num_samples),
+            Self::ImageFolder(dataset) => Some(dataset.num_samples()),
         }
     }
 

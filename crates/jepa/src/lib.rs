@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod commands;
+pub mod demo;
 mod fmt_utils;
 mod tui;
 

@@ -146,6 +146,11 @@ batching, masking, optimizer updates, and EMA without checking a large image
 corpus into git. It is not large enough to demonstrate real representation
 learning quality; it is an execution demo, not a benchmark dataset.
 
+The TUI now incorporates these demos in the `Training` tab as a guided demo
+runner. Launch `jepa`, switch to tab `3`, choose a demo with `j/k`, and press
+`Enter` to run it. The panel streams real run logs, step metrics, loss/energy
+charts, and a short interpretation of what happened.
+
 If you want to run the CLI directly after generating the demo dataset:
 
 ```bash

@@ -9,18 +9,16 @@
 //! cargo run -p jepa --example prepare_demo_image_folder
 //! ```
 
-mod support;
-
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    let dataset_dir = support::ensure_demo_image_folder()?;
+    let prepared = jepa::demo::prepare_demo_image_folder()?;
 
     println!("Prepared demo image folder at:");
-    println!("  {}", dataset_dir.display());
+    println!("  {}", prepared.root.display());
     println!();
     println!("Images:");
-    for relative_path in support::demo_image_relative_paths() {
+    for relative_path in &prepared.files {
         println!("  {}", relative_path);
     }
     println!();
@@ -28,8 +26,8 @@ fn main() -> Result<()> {
     println!("  cargo run -p jepa -- train --preset vit-small-16 --steps 2 --batch-size 2 \\");
     println!(
         "    --dataset-dir {} --resize 256 --crop-size 224 --shuffle --dataset-limit {}",
-        dataset_dir.display(),
-        support::DEMO_IMAGE_COUNT
+        prepared.root.display(),
+        jepa::demo::DEMO_IMAGE_COUNT
     );
 
     Ok(())

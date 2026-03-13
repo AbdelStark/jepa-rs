@@ -9,6 +9,7 @@ use ratatui::widgets::{
 use ratatui::Frame;
 
 use super::app::{App, Tab, TrainingState};
+use crate::demo::DemoId;
 use crate::fmt_utils::format_params;
 
 // Color palette — Catppuccin Mocha
@@ -140,7 +141,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     let keys = match app.active_tab {
         Tab::Dashboard => "Tab:switch  ?:help  q:quit",
         Tab::Models => "↑↓/jk:navigate  Tab:switch  ?:help  q:quit",
-        Tab::Training => "s:start/pause  r:reset  Tab:switch  ?:help  q:quit",
+        Tab::Training => "↑↓/jk:choose  Enter/s:run  r:rerun  c:clear  Tab:switch  ?:help  q:quit",
         Tab::Checkpoint => "↑↓/jk:scroll  Tab:switch  ?:help  q:quit",
         Tab::About => "Tab:switch  ?:help  q:quit",
     };
@@ -195,20 +196,20 @@ fn draw_dashboard(f: &mut Frame, area: Rect, app: &App) {
     draw_status_card(
         f,
         card_chunks[2],
-        "Training",
+        "Demo Runner",
         match app.training.state {
-            TrainingState::Idle => "Idle",
+            TrainingState::Idle => "Ready",
             TrainingState::Running => "Running",
-            TrainingState::Paused => "Paused",
             TrainingState::Complete => "Done",
+            TrainingState::Failed => "Failed",
         },
         match app.training.state {
             TrainingState::Idle => SUBTEXT,
             TrainingState::Running => GREEN,
-            TrainingState::Paused => YELLOW,
             TrainingState::Complete => TEAL,
+            TrainingState::Failed => PINK,
         },
-        "Press 3 to view",
+        app.training.selected_demo().title(),
     );
     draw_status_card(
         f,
@@ -446,109 +447,338 @@ fn draw_training(f: &mut Frame, area: Rect, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5), // Status bar
-            Constraint::Min(10),   // Charts
-            Constraint::Length(6), // Config
+            Constraint::Length(7),  // Hero
+            Constraint::Min(16),    // Demo body
+            Constraint::Length(10), // Execution log
         ])
         .margin(1)
         .split(area);
 
-    // Status/progress
-    let progress = if app.training.total_steps > 0 {
-        app.training.current_step as f64 / app.training.total_steps as f64
-    } else {
-        0.0
-    };
+    draw_training_hero(f, chunks[0], app);
 
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(34), Constraint::Percentage(66)])
+        .split(chunks[1]);
+
+    draw_demo_catalog(f, body[0], app);
+    draw_training_monitor(f, body[1], app);
+    draw_training_log(f, chunks[2], app);
+}
+
+fn draw_training_hero(f: &mut Frame, area: Rect, app: &App) {
+    let selected_demo = app.training.selected_demo();
     let state_color = match app.training.state {
         TrainingState::Idle => SUBTEXT,
         TrainingState::Running => GREEN,
-        TrainingState::Paused => YELLOW,
         TrainingState::Complete => TEAL,
+        TrainingState::Failed => PINK,
+    };
+    let state_label = match app.training.state {
+        TrainingState::Idle => "READY",
+        TrainingState::Running => "RUNNING",
+        TrainingState::Complete => "COMPLETE",
+        TrainingState::Failed => "FAILED",
     };
 
-    let state_text = match app.training.state {
-        TrainingState::Idle => "IDLE — press s to start",
-        TrainingState::Running => "TRAINING",
-        TrainingState::Paused => "PAUSED — press s to resume",
-        TrainingState::Complete => "COMPLETE",
-    };
+    let hero = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(68), Constraint::Percentage(32)])
+        .split(area);
+
+    let intro = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled(" ◆ ", Style::default().fg(MAUVE)),
+            Span::styled(selected_demo.title(), Style::default().fg(TEXT).bold()),
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                format!("[{state_label}]"),
+                Style::default().fg(state_color).bold(),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("  {}", selected_demo.subtitle()),
+            Style::default().fg(SUBTEXT),
+        )),
+        Line::from(vec![
+            Span::styled("  Runtime: ", Style::default().fg(OVERLAY)),
+            Span::styled(
+                selected_demo.estimated_duration(),
+                Style::default().fg(PEACH),
+            ),
+            Span::styled("    Example: ", Style::default().fg(OVERLAY)),
+            Span::styled(selected_demo.example_name(), Style::default().fg(LAVENDER)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Command: ", Style::default().fg(OVERLAY)),
+            Span::styled(selected_demo.command(), Style::default().fg(BLUE)),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .title(Line::from(vec![
+                Span::styled(" ◆ ", Style::default().fg(MAUVE)),
+                Span::styled("Guided Demo", Style::default().fg(TEXT)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1)),
+    );
+    f.render_widget(intro, hero[0]);
 
     let gauge = Gauge::default()
         .block(
             Block::default()
                 .title(Line::from(vec![
                     Span::styled(" ◆ ", Style::default().fg(state_color)),
-                    Span::styled(
-                        format!(
-                            "Training — {} — step {}/{}",
-                            state_text, app.training.current_step, app.training.total_steps
-                        ),
-                        Style::default().fg(TEXT),
-                    ),
+                    Span::styled("Progress", Style::default().fg(TEXT)),
                 ]))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(SURFACE1)),
         )
         .gauge_style(Style::default().fg(MAUVE).bg(SURFACE0))
-        .ratio(progress)
+        .ratio(app.training.progress_ratio.clamp(0.0, 1.0))
         .label(Span::styled(
-            format!("{:.1}%", progress * 100.0),
+            format!("{:.1}%", app.training.progress_ratio * 100.0),
             Style::default().fg(TEXT).bold(),
         ));
+    f.render_widget(gauge, hero[1]);
+}
 
-    f.render_widget(gauge, chunks[0]);
+fn draw_demo_catalog(f: &mut Frame, area: Rect, app: &App) {
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(11), Constraint::Min(8)])
+        .split(area);
 
-    // Charts area
-    let chart_chunks = Layout::default()
+    let selected_demo = app.training.selected_demo();
+    let selection = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("  Selected: ", Style::default().fg(OVERLAY)),
+            Span::styled(selected_demo.title(), Style::default().fg(TEXT).bold()),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("  {}", selected_demo.subtitle()),
+            Style::default().fg(SUBTEXT),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Best for: ", Style::default().fg(OVERLAY)),
+            Span::styled(selected_demo.process_notes()[0], Style::default().fg(TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Watch: ", Style::default().fg(OVERLAY)),
+            Span::styled(
+                selected_demo.monitoring_notes()[0],
+                Style::default().fg(TEXT),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Controls: ", Style::default().fg(OVERLAY)),
+            Span::styled("Enter/s run", Style::default().fg(LAVENDER)),
+            Span::styled("  r rerun", Style::default().fg(LAVENDER)),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .title(Line::from(vec![
+                Span::styled(" ◆ ", Style::default().fg(MAUVE)),
+                Span::styled("Selection", Style::default().fg(TEXT)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1)),
+    );
+    f.render_widget(selection, sections[0]);
+
+    let items: Vec<ListItem> = DemoId::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, demo)| {
+            let selected = index == app.training.selected_demo_index;
+            let title_style = if selected {
+                Style::default().fg(MAUVE).bg(SURFACE0).bold()
+            } else {
+                Style::default().fg(TEXT)
+            };
+
+            ListItem::new(vec![
+                Line::from(vec![
+                    Span::styled(if selected { " ▸ " } else { "   " }, title_style),
+                    Span::styled(demo.title(), title_style),
+                    Span::styled(
+                        format!("  ({})", demo.estimated_duration()),
+                        Style::default().fg(OVERLAY),
+                    ),
+                ]),
+                Line::from(Span::styled(
+                    format!("   {}", demo.subtitle()),
+                    Style::default().fg(SUBTEXT),
+                )),
+            ])
+        })
+        .collect();
+
+    let demo_list = List::new(items).block(
+        Block::default()
+            .title(Line::from(vec![
+                Span::styled(" ◆ ", Style::default().fg(MAUVE)),
+                Span::styled("Runnable Demos", Style::default().fg(TEXT)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1)),
+    );
+
+    f.render_widget(demo_list, sections[1]);
+}
+
+fn draw_training_monitor(f: &mut Frame, area: Rect, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(5),
+            Constraint::Min(12),
+            Constraint::Length(9),
+        ])
+        .split(area);
+
+    let phase_color = match app.training.state {
+        TrainingState::Idle => SUBTEXT,
+        TrainingState::Running => GREEN,
+        TrainingState::Complete => TEAL,
+        TrainingState::Failed => PINK,
+    };
+
+    let monitor = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("  Phase: ", Style::default().fg(OVERLAY)),
+            Span::styled(&app.training.phase_title, Style::default().fg(TEXT).bold()),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Detail: ", Style::default().fg(OVERLAY)),
+            Span::styled(&app.training.phase_detail, Style::default().fg(phase_color)),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .title(Line::from(vec![
+                Span::styled(" ◆ ", Style::default().fg(phase_color)),
+                Span::styled("Live Monitor", Style::default().fg(TEXT)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1)),
+    );
+    f.render_widget(monitor, chunks[0]);
+
+    let chart_columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[1]);
+    let left = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chart_columns[0]);
+    let right = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chart_columns[1]);
 
-    // Loss chart
-    draw_metric_chart(f, chart_chunks[0], "Loss", &app.training.losses, PINK);
-
-    // LR chart
+    draw_metric_chart(f, left[0], "Loss", &app.training.losses, PINK);
+    draw_metric_chart(f, left[1], "Energy", &app.training.energies, GREEN);
     draw_metric_chart(
         f,
-        chart_chunks[1],
+        right[0],
         "Learning Rate",
         &app.training.learning_rates,
         SAPPHIRE,
     );
+    draw_metric_chart(
+        f,
+        right[1],
+        "EMA Momentum",
+        &app.training.ema_momentums,
+        PEACH,
+    );
 
-    // Config summary
-    let last_loss = app.training.losses.last().copied().unwrap_or(0.0);
-    let last_lr = app.training.learning_rates.last().copied().unwrap_or(0.0);
-    let last_momentum = app.training.ema_momentums.last().copied().unwrap_or(0.0);
+    let result_lines: Vec<Line> = if app.training.summary_lines.is_empty() {
+        app.training
+            .selected_demo()
+            .monitoring_notes()
+            .iter()
+            .map(|line| {
+                Line::from(vec![
+                    Span::styled("  ◆ ", Style::default().fg(MAUVE)),
+                    Span::styled(*line, Style::default().fg(TEXT)),
+                ])
+            })
+            .collect()
+    } else {
+        app.training
+            .summary_lines
+            .iter()
+            .map(|line| {
+                Line::from(vec![
+                    Span::styled("  ◆ ", Style::default().fg(MAUVE)),
+                    Span::styled(line, Style::default().fg(TEXT)),
+                ])
+            })
+            .collect()
+    };
 
-    let config_lines = vec![Line::from(vec![
-        Span::styled("  Loss: ", Style::default().fg(OVERLAY)),
-        Span::styled(format!("{last_loss:.6}"), Style::default().fg(PINK)),
-        Span::styled("    LR: ", Style::default().fg(OVERLAY)),
-        Span::styled(format!("{last_lr:.2e}"), Style::default().fg(SAPPHIRE)),
-        Span::styled("    EMA momentum: ", Style::default().fg(OVERLAY)),
-        Span::styled(format!("{last_momentum:.4}"), Style::default().fg(PEACH)),
-        Span::styled("    Energy: ", Style::default().fg(OVERLAY)),
-        Span::styled("L2", Style::default().fg(GREEN)),
-        Span::styled("    Reg: ", Style::default().fg(OVERLAY)),
-        Span::styled("VICReg", Style::default().fg(YELLOW)),
-    ])];
+    let results = Paragraph::new(result_lines)
+        .wrap(Wrap { trim: false })
+        .block(
+            Block::default()
+                .title(Line::from(vec![
+                    Span::styled(" ◆ ", Style::default().fg(MAUVE)),
+                    Span::styled("Result & Interpretation", Style::default().fg(TEXT)),
+                ]))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(SURFACE1)),
+        );
 
-    let config = Paragraph::new(config_lines).block(
+    f.render_widget(results, chunks[2]);
+}
+
+fn draw_training_log(f: &mut Frame, area: Rect, app: &App) {
+    let lines: Vec<Line> = if app.training.logs.is_empty() {
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  ◆ ", Style::default().fg(MAUVE)),
+                Span::styled(
+                    "Run a demo to stream real dataset setup, training phases, and results.",
+                    Style::default().fg(OVERLAY),
+                ),
+            ]),
+        ]
+    } else {
+        app.training
+            .logs
+            .iter()
+            .map(|line| Line::from(Span::styled(line, Style::default().fg(TEXT))))
+            .collect()
+    };
+
+    let panel = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
         Block::default()
             .title(Line::from(vec![
                 Span::styled(" ◆ ", Style::default().fg(MAUVE)),
-                Span::styled("Metrics", Style::default().fg(TEXT)),
+                Span::styled("Execution Log", Style::default().fg(TEXT)),
             ]))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(SURFACE1))
-            .padding(Padding::new(0, 0, 1, 0)),
+            .border_style(Style::default().fg(SURFACE1)),
     );
 
-    f.render_widget(config, chunks[2]);
+    f.render_widget(panel, area);
 }
 
 fn draw_metric_chart(f: &mut Frame, area: Rect, title: &str, data: &[f64], color: Color) {
@@ -557,7 +787,7 @@ fn draw_metric_chart(f: &mut Frame, area: Rect, title: &str, data: &[f64], color
             Line::from(""),
             Line::from(""),
             Line::from(Span::styled(
-                "  No data yet — start training",
+                "  No run data yet — start a demo",
                 Style::default().fg(OVERLAY),
             )),
         ])
@@ -957,15 +1187,19 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("  j/k ↑/↓  ", Style::default().fg(LAVENDER).bold()),
-            Span::styled("Navigate lists", Style::default().fg(TEXT)),
+            Span::styled("Navigate models and demos", Style::default().fg(TEXT)),
         ]),
         Line::from(vec![
             Span::styled("  s/Enter  ", Style::default().fg(LAVENDER).bold()),
-            Span::styled("Start/pause training", Style::default().fg(TEXT)),
+            Span::styled("Run selected demo", Style::default().fg(TEXT)),
         ]),
         Line::from(vec![
             Span::styled("  r        ", Style::default().fg(LAVENDER).bold()),
-            Span::styled("Reset training", Style::default().fg(TEXT)),
+            Span::styled("Rerun selected demo", Style::default().fg(TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("  c        ", Style::default().fg(LAVENDER).bold()),
+            Span::styled("Clear demo output", Style::default().fg(TEXT)),
         ]),
         Line::from(vec![
             Span::styled("  ?        ", Style::default().fg(LAVENDER).bold()),
