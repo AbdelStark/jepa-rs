@@ -66,9 +66,9 @@ jepa-rs supports loading official Facebook Research pretrained JEPA models:
 ```toml
 # Cargo.toml
 [dependencies]
-jepa-core   = { git = "https://github.com/AbdelStark/jepa-rs" }
-jepa-vision = { git = "https://github.com/AbdelStark/jepa-rs" }
-jepa-compat = { git = "https://github.com/AbdelStark/jepa-rs" }  # For ONNX + checkpoint loading
+jepa-core   = "0.1.0"
+jepa-vision = "0.1.0"
+jepa-compat = "0.1.0"  # For ONNX + checkpoint loading
 ```
 
 ### CLI
@@ -76,7 +76,10 @@ jepa-compat = { git = "https://github.com/AbdelStark/jepa-rs" }  # For ONNX + ch
 The `jepa` binary provides a unified CLI for the workspace:
 
 ```bash
-# Install the CLI
+# Install the CLI from crates.io
+cargo install jepa
+
+# Or install from the local workspace checkout
 cargo install --path crates/jepa
 
 # Launch the interactive TUI dashboard
@@ -372,7 +375,7 @@ cargo bench --workspace --no-run
 - The generic trainer slices tokens after encoder forward; strict pre-attention masking is available via `IJepa::forward_step_strict` and `VJepa::forward_step_strict`
 - ONNX support covers metadata inspection and initializer loading only, not graph execution
 - Differential parity runs in CI for strict image fixtures; broader video parity is pending
-- Workspace crates not yet published to crates.io (depends on git for now)
+- First-time crates.io release must be published in dependency order because the workspace crates depend on each other by version
 
 ## JEPA Variants: What We Implement
 

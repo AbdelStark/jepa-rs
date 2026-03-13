@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 description = "CLI and TUI for the jepa-rs workspace"
+readme = "../../README.md"
+documentation = "https://docs.rs/jepa"
 keywords = ["jepa", "cli", "tui", "machine-learning"]
 categories = ["command-line-utilities"]
 
@@ -17,11 +19,11 @@ path = "src/main.rs"
 
 [dependencies]
 # Workspace crates
-jepa-core = { path = "../jepa-core" }
-jepa-vision = { path = "../jepa-vision" }
-jepa-world = { path = "../jepa-world" }
-jepa-train = { path = "../jepa-train" }
-jepa-compat = { path = "../jepa-compat" }
+jepa-core = { path = "../jepa-core", version = "0.1.0" }
+jepa-vision = { path = "../jepa-vision", version = "0.1.0" }
+jepa-world = { path = "../jepa-world", version = "0.1.0" }
+jepa-train = { path = "../jepa-train", version = "0.1.0" }
+jepa-compat = { path = "../jepa-compat", version = "0.1.0" }
 
 # Workspace deps
 burn = { workspace = true }
