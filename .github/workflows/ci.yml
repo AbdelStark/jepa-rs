@@ -111,8 +111,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
-      - uses: taiki-e/install-action@cargo-fuzz
       - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-fuzz
       - working-directory: fuzz
         run: cargo fuzz run masking -- -runs=256
       - working-directory: fuzz
