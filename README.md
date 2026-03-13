@@ -25,9 +25,9 @@ Alpha Rust implementation of **JEPA** (Joint Embedding Predictive Architecture) 
                     │   Target     │         │   Predictor   │──── predicted repr
                     │   (masked)   │──┐      └───────────────┘          │
                     └──────────────┘  │                                 │
-                                      │      ┌───────────────┐         │
+                                      │      ┌───────────────┐          │
                                       └──────│ Target Encoder│── target repr
-                                        EMA  │   (frozen)    │         │
+                                        EMA  │   (frozen)    │          │
                                              └───────────────┘          │
                                                                         │
                                              ┌───────────────┐          │
