@@ -39,4 +39,5 @@ crossterm = { version = "0.28", features = ["event-stream"] }
 # Utilities
 anyhow = "1"
 chrono = "0.4"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 rand = { workspace = true }

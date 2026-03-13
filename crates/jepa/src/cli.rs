@@ -26,7 +26,7 @@ pub enum Command {
     /// Checkpoint operations (inspect metadata, convert)
     Checkpoint(CheckpointArgs),
     /// Launch a training run
-    Train(TrainArgs),
+    Train(Box<TrainArgs>),
     /// Encode inputs through a model to produce embeddings
     Encode(EncodeArgs),
     /// Launch the interactive TUI dashboard
@@ -102,12 +102,40 @@ pub struct TrainArgs {
     pub batch_size: usize,
 
     /// Optional safetensors dataset file containing an image tensor `[N, C, H, W]`
-    #[arg(long)]
+    #[arg(long, conflicts_with = "dataset_dir")]
     pub dataset: Option<PathBuf>,
 
     /// Tensor key to read from `--dataset`
     #[arg(long, default_value = "images")]
     pub dataset_key: String,
+
+    /// Optional directory/tree of image files (`jpg`, `jpeg`, `png`, `webp`)
+    #[arg(long, value_name = "PATH", conflicts_with = "dataset")]
+    pub dataset_dir: Option<PathBuf>,
+
+    /// Resize the shorter image side before center crop (`--dataset-dir` only)
+    #[arg(long, value_name = "INT", requires = "dataset_dir")]
+    pub resize: Option<usize>,
+
+    /// Final square crop size after resize (`--dataset-dir` only)
+    #[arg(long, value_name = "INT", requires = "dataset_dir")]
+    pub crop_size: Option<usize>,
+
+    /// Channel mean CSV for image-folder normalization (`--dataset-dir` only)
+    #[arg(long, value_name = "CSV", requires = "dataset_dir")]
+    pub mean: Option<String>,
+
+    /// Channel std CSV for image-folder normalization (`--dataset-dir` only)
+    #[arg(long, value_name = "CSV", requires = "dataset_dir")]
+    pub std: Option<String>,
+
+    /// Limit dataset-backed modes to the first N samples after discovery
+    #[arg(long, value_name = "INT")]
+    pub dataset_limit: Option<usize>,
+
+    /// Shuffle dataset order at epoch boundaries for dataset-backed modes
+    #[arg(long)]
+    pub shuffle: bool,
 
     /// Masking strategy
     #[arg(long, default_value = "block")]
@@ -251,6 +279,9 @@ mod tests {
             "train.safetensors",
             "--dataset-key",
             "images",
+            "--dataset-limit",
+            "4",
+            "--shuffle",
         ])
         .expect("dataset-backed train flags should parse");
 
@@ -262,5 +293,62 @@ mod tests {
             Some(std::path::Path::new("train.safetensors"))
         );
         assert_eq!(args.dataset_key, "images");
+        assert_eq!(args.dataset_limit, Some(4));
+        assert!(args.shuffle);
+    }
+
+    #[test]
+    fn train_accepts_image_folder_dataset_arguments() {
+        let cli = Cli::try_parse_from([
+            "jepa",
+            "train",
+            "--dataset-dir",
+            "images/train",
+            "--resize",
+            "256",
+            "--crop-size",
+            "224",
+            "--mean",
+            "0.485,0.456,0.406",
+            "--std",
+            "0.229,0.224,0.225",
+            "--shuffle",
+        ])
+        .expect("image-folder train flags should parse");
+
+        let Some(Command::Train(args)) = cli.command else {
+            panic!("expected train subcommand");
+        };
+        assert_eq!(
+            args.dataset_dir.as_deref(),
+            Some(std::path::Path::new("images/train"))
+        );
+        assert_eq!(args.resize, Some(256));
+        assert_eq!(args.crop_size, Some(224));
+        assert_eq!(args.mean.as_deref(), Some("0.485,0.456,0.406"));
+        assert_eq!(args.std.as_deref(), Some("0.229,0.224,0.225"));
+        assert!(args.shuffle);
+    }
+
+    #[test]
+    fn train_rejects_multiple_dataset_sources() {
+        let result = Cli::try_parse_from([
+            "jepa",
+            "train",
+            "--dataset",
+            "train.safetensors",
+            "--dataset-dir",
+            "images/train",
+        ]);
+        let err = match result {
+            Ok(_) => panic!("multiple dataset sources should be rejected"),
+            Err(err) => err,
+        };
+
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("--dataset") && rendered.contains("--dataset-dir"),
+            "unexpected clap error: {rendered}"
+        );
     }
 }

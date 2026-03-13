@@ -21,7 +21,7 @@ fn run_command(cmd: Command) -> Result<()> {
         Command::Models(args) => commands::models::run(args),
         Command::Inspect(args) => commands::inspect::run(args),
         Command::Checkpoint(args) => commands::checkpoint::run(args),
-        Command::Train(args) => commands::train::run(args),
+        Command::Train(args) => commands::train::run(*args),
         Command::Encode(args) => commands::encode::run(args),
         Command::Tui => tui::run(),
     }

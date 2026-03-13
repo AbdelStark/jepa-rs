@@ -94,6 +94,10 @@ jepa checkpoint model.safetensors --keymap ijepa --verbose
 # Launch a training run
 jepa train --preset vit-base-16 --steps 10 --batch-size 1 --lr 1e-3
 
+# Train from a normal image directory tree with deterministic resize/crop/normalize
+jepa train --preset vit-base-16 --steps 100 --batch-size 4 \
+  --dataset-dir ./images/train --resize 256 --crop-size 224 --shuffle
+
 # Train from a safetensors image tensor dataset [N, C, H, W]
 jepa train --preset vit-base-16 --steps 100 --batch-size 1 \
   --dataset train.safetensors --dataset-key images
@@ -106,8 +110,15 @@ jepa encode --model model.onnx --height 224 --width 224
 ```
 
 The CLI `train` command now runs real strict masked-image optimization with
-AdamW and EMA. Without `--dataset`, it uses synthetic random tensors; with
-`--dataset`, it trains on a safetensors image tensor shaped `[N, C, H, W]`.
+AdamW and EMA. It chooses one input source per run:
+
+- `--dataset-dir <PATH>` for a recursive image-folder dataset (`jpg`, `jpeg`, `png`, `webp`) with decode, RGB conversion, shorter-side resize, center crop, CHW tensor conversion, and normalization
+- `--dataset <FILE> --dataset-key <KEY>` for a safetensors image tensor shaped `[N, C, H, W]`
+- no dataset flags for the synthetic random-tensor fallback
+
+Image-folder preprocessing defaults to the preset image size for `--crop-size`
+and the ImageNet RGB normalization statistics when `--mean` and `--std` are
+omitted. Dataset loading is currently single-threaded.
 `jepa encode` executes real encoder weights for `.safetensors` and `.onnx`
 inputs; other extensions still fall back to the preset demo path.
 
