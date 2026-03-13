@@ -1,266 +1,207 @@
 <identity>
-jepa-rs is an alpha Rust workspace for JEPA (Joint Embedding Predictive Architecture) components built on burn 0.20.1.
-
-The workspace compiles cleanly, 365 tests pass, safetensors and ONNX metadata/initializer loading work, strict masked-encoder paths exist for image and video, and a CLI binary with interactive TUI dashboard is included.
+jepa-rs is a Rust Cargo workspace for JEPA primitives, strict image and video reference paths, checkpoint and ONNX interoperability, and a CLI/TUI built on burn.
 </identity>
-
-<architecture>
-
-| Path | Responsibility |
-|------|----------------|
-| `crates/jepa-core` | Shared tensor wrappers (`Representation`, `Energy`), core traits (`Encoder`, `Predictor`, `EnergyFn`, `MaskingStrategy`, `CollapseRegularizer`), EMA, config |
-| `crates/jepa-vision` | ViT encoders (image + video), patch embedding, RoPE, `TransformerPredictor`, `IJepa`/`VJepa` shells with strict paths |
-| `crates/jepa-world` | Action-conditioned rollout, `RandomShootingPlanner` (CEM), `HierarchicalJepa`, `ShortTermMemory` |
-| `crates/jepa-train` | `JepaComponents` forward-step orchestrator, LR schedules, checkpoint metadata (no optimizer — caller owns that) |
-| `crates/jepa-compat` | safetensors loading, PyTorch key remapping, ONNX metadata/initializer inspection, ONNX runtime via tract |
-| `crates/jepa` | CLI binary (6 subcommands) and interactive TUI dashboard (5 tabs) |
-
-Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) before making architectural changes.
-Read [`PRODUCTION_GAP.md`](./PRODUCTION_GAP.md), [`ROADMAP.md`](./ROADMAP.md), and [`WORK_PACKAGES.md`](./WORK_PACKAGES.md) before planning substantial work.
-</architecture>
-
-<structure>
-```
-crates/
-├── jepa-core/src/       # Core traits & types [create/modify]
-│   ├── types.rs         # Representation<B>, Energy<B>, MaskSpec, InputShape
-│   ├── encoder.rs       # Encoder<B> trait
-│   ├── predictor.rs     # Predictor<B> trait
-│   ├── energy.rs        # EnergyFn<B> + L2, Cosine, SmoothL1
-│   ├── masking.rs       # MaskingStrategy + Block, Spatiotemporal, MultiBlock
-│   ├── collapse.rs      # CollapseRegularizer<B> + VICReg, BarlowTwins
-│   ├── ema.rs           # Ema, CosineMomentumSchedule
-│   └── config.rs        # JepaConfig with builder + validation
-├── jepa-vision/src/     # Vision-specific implementations [create/modify]
-│   ├── vit.rs           # VitConfig presets (Tiny→Giant), VitEncoder<B>
-│   ├── patch.rs         # PatchEmbedding (2D images)
-│   ├── rope.rs          # RotaryPositionEncoding2D
-│   ├── image.rs         # IJepa + forward_step_strict
-│   └── video.rs         # VitVideoEncoder, VJepa + forward_step_strict
-├── jepa-world/src/      # World model primitives [create/modify]
-│   ├── action.rs        # Action<B>, ActionConditionedPredictor
-│   ├── planner.rs       # WorldModel, RandomShootingPlanner, CostFunction
-│   ├── hierarchy.rs     # HierarchicalJepa, JepaLevel
-│   └── memory.rs        # ShortTermMemory (bounded FIFO)
-├── jepa-train/src/      # Training orchestration [create/modify]
-│   ├── trainer.rs       # JepaComponents::forward_step (generic orchestrator)
-│   ├── step.rs          # TrainStepOutput, TrainConfig, TrainMetrics
-│   ├── schedule.rs      # LrSchedule + WarmupCosine, Constant
-│   └── checkpoint.rs    # CheckpointMeta
-├── jepa-compat/src/     # Interop/loading [create/modify]
-│   ├── safetensors.rs   # LoadedTensor, F16/BF16→f32 widening
-│   ├── onnx.rs          # OnnxModelInfo, metadata + initializer inspection
-│   ├── runtime.rs       # OnnxSession via tract, OnnxEncoder<B> adapter
-│   ├── keymap.rs        # PyTorch → burn key remapping
-│   └── registry.rs      # Pretrained model discovery
-├── jepa/src/            # CLI binary + TUI [create/modify]
-│   ├── cli.rs           # Cli struct, 6 subcommands
-│   ├── commands/        # Command implementations
-│   └── tui/             # Ratatui dashboard (5 tabs)
-docs/                    # Project documentation [read-only unless updating docs]
-fuzz/                    # Fuzz targets [create/modify]
-scripts/                 # Build/CI scripts [read-only]
-specs/                   # Gherkin BDD specs [read-only]
-SPECIFICATION.md         # RFC archive [NEVER modify without approval]
-ARCHITECTURE.md          # Crate boundaries [read before changing]
-```
-</structure>
 
 <stack>
 
-| Layer | Tooling | Version |
-|-------|---------|---------|
-| Language | Rust | 2021 edition, MSRV 1.85 |
-| Tensor backend | burn | 0.20.1 (with autodiff feature) |
-| CPU backend (tests) | burn-ndarray | 0.20.1 |
-| GPU backend | burn-wgpu | 0.20.1 |
-| Serialization | serde, serde_json | 1.x |
-| Errors | thiserror | 2.x |
-| Checkpoint format | safetensors | 0.7 |
-| F16 widening | half | 2.x |
-| CLI | clap | 4.x |
-| TUI | ratatui + crossterm | 0.29 + 0.28 |
-| Testing | cargo test, proptest 1.x | crate-local |
-| Benchmarks | criterion | 0.8.2 |
-| Linting | clippy | -D warnings |
-| Formatting | rustfmt | --check |
+| Layer | Technology | Version | Notes |
+|-------|------------|---------|-------|
+| Runtime | Rust toolchain | stable, MSRV 1.85 | CI uses stable; nightly only for `fuzz/` |
+| Language | Rust | 2021 edition | `rust-version = 1.85` in workspace manifests |
+| Workspace | Cargo workspace | resolver 2 | 6 member crates plus nested fuzz workspace |
+| ML framework | burn | 0.20.1 | `autodiff` enabled workspace-wide |
+| CPU backend | burn-ndarray | 0.20.1 | Default test and demo backend |
+| GPU/WebGPU backend | burn-wgpu | 0.20.1 | Present as workspace dependency |
+| Serialization | serde, serde_json | 1.x | Configs and metadata |
+| Errors | thiserror | 2.x | Library crates |
+| Checkpoint format | safetensors | 0.7.0 | `jepa-compat` |
+| ONNX runtime | tract-onnx | 0.23.0-dev.2 | `jepa-compat` runtime path |
+| CLI | clap | 4.x | `crates/jepa` |
+| TUI | ratatui, crossterm | 0.29, 0.28 | `crates/jepa` |
+| Testing | cargo test, proptest | 1.x | Unit, integration, doc, property tests |
+| Benchmarks | criterion | 0.8.2 | Per-crate benches |
+| Fuzzing | cargo-fuzz, libfuzzer-sys | nightly, 0.4.12 | Separate `fuzz/` workspace |
 
 </stack>
+
+<structure>
+```text
+crates/
+├── jepa-core/      # Shared contracts, semantic tensor wrappers, masking, energy, config [agent: gated for public API files]
+├── jepa-vision/    # ViT, IJepa, VJepa, strict image/video reference paths [agent: create/modify]
+├── jepa-train/     # Generic training orchestration and schedules [agent: create/modify]
+├── jepa-world/     # Planning, memory, hierarchical world-model helpers [agent: create/modify]
+├── jepa-compat/    # safetensors, key mapping, ONNX metadata/runtime [agent: create/modify]
+└── jepa/           # CLI binary, demos, and ratatui dashboard [agent: create/modify]
+.github/workflows/  # CI gates and release smoke checks [agent: gated]
+docs/               # Project docs [agent: create/modify]
+docs/agentic/       # Living agent memory: decisions and lessons learned [agent: create/modify]
+fuzz/               # Separate cargo-fuzz workspace and fuzz targets [agent: modify with care]
+scripts/            # Parity and export scripts [agent: gated]
+specs/differential/ # Strict I-JEPA parity fixtures and fixture tooling [agent: gated]
+target/             # Generated build outputs and demo artifacts [agent: never edit]
+README.md           # Public project overview [agent: create/modify]
+CONTRIBUTING.md     # Dev workflow and commit convention [agent: create/modify]
+CHANGELOG.md        # Release history [agent: create/modify]
+Cargo.toml          # Workspace membership and shared dependency versions [agent: gated]
+Cargo.lock          # Locked dependency graph [agent: gated]
+```
+
+Module boundaries:
+- `jepa-core` is the contract layer. All library crates depend on it.
+- `jepa-vision`, `jepa-train`, `jepa-world`, and `jepa-compat` are library layers on top of `jepa-core`.
+- `crates/jepa` is the only binary crate and depends on all other workspace crates.
+- `fuzz/` is not a normal workspace member. Treat it as a separate nightly-only validation surface.
+</structure>
 
 <commands>
 
 | Task | Command | Notes |
 |------|---------|-------|
-| Build | `cargo build` | All 6 crates + binary |
-| Test (all) | `cargo test --workspace` | 365 tests, ~30s |
-| Test (crate) | `cargo test -p jepa-core` | Focused per-crate runs |
-| Clippy | `cargo clippy --all-targets -- -D warnings` | Zero warnings required |
-| Format check | `cargo fmt -- --check` | Must pass before commit |
-| Docs | `cargo doc --no-deps` | Builds rustdoc |
-| Single test | `cargo test -p jepa-core -- test_name` | Run one test |
-| Test verbose | `cargo test -p jepa-core -- --nocapture` | See println output |
+| Workspace check | `cargo check --workspace --all-targets` | Fastest whole-repo compile gate |
+| Workspace tests | `cargo test --workspace` | Runs unit, integration, and doc tests |
+| Core-only tests | `cargo test -p jepa-core` | Use before wider workspace runs |
+| Vision tests | `cargo test -p jepa-vision` | Includes strict-path unit tests |
+| Compat tests | `cargo test -p jepa-compat` | safetensors, ONNX, keymap coverage |
+| CLI/TUI tests | `cargo test -p jepa` | Clap parsing and demo helpers |
+| Clippy | `cargo clippy --workspace --all-targets -- -D warnings` | Warnings are errors in CI |
+| Format check | `cargo fmt -- --check` | Use `cargo fmt` only to apply formatting |
+| Strict parity | `scripts/run_parity_suite.sh` | Runs all bundled strict image fixtures |
 
-CI runs 11 jobs: check, test, clippy, fmt, doc, coverage (80% floor), bench-smoke, parity, package-smoke, fuzz, audit.
-
+CI also runs additional gates from `.github/workflows/ci.yml`: `cargo doc --no-deps --all-features`, `cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only`, `cargo bench --workspace --no-run`, crate packaging smoke checks, nightly fuzz smoke, and `rustsec` audit.
 </commands>
 
 <conventions>
+  <code_style>
+    Files and modules use `snake_case`. Types use `PascalCase`. Constants use `SCREAMING_SNAKE_CASE`.
+    Keep public tensor-bearing APIs generic over `B: Backend`.
+    Prefer semantic wrappers such as `Representation<B>`, `Energy<B>`, and `Action<B>` over raw public `Tensor` types when a wrapper already exists.
+    Library crates use typed `thiserror` enums. CLI and TUI code in `crates/jepa` uses `anyhow::Result` plus `.context(...)`.
+    Tests live in `#[cfg(test)] mod tests` at the bottom of the owning file and use `burn_ndarray::NdArray<f32>` on CPU unless a test proves otherwise.
+    Let `rustfmt` own import ordering. Prefer `use crate::...` inside a crate and explicit crate names across crates.
+  </code_style>
 
-- Keep tensor-bearing public APIs generic over `B: Backend`.
-- Prefer semantic wrappers (`Representation<B>`, `Energy<B>`) over raw `Tensor<B, N>` in public interfaces.
-- Use `thiserror::Error` for all error types. Propagate with `?`, never `unwrap()` in library code.
-- Treat panics as invariant violations, not error handling. Document remaining panics.
-- Add tests for every behavioral fix. Regression tests matter more than broad refactors.
-- Use concise comments for non-obvious invariants only. No prose filler.
-- Config types use builder pattern with `.validate()` returning `Result<T, ConfigError>`.
-- Test backend: `type TestBackend = burn_ndarray::NdArray<f32>;` in all `#[cfg(test)]` modules.
-- File naming: snake_case.rs. Type naming: PascalCase. Method naming: snake_case.
-- Imports: `use crate::` for intra-crate, `use jepa_core::` for cross-crate.
-- All public types derive `Debug, Clone`. Configs also derive `Serialize, Deserialize`.
+  <patterns>
+    <do>
+      - Call `.validate()` on configs before trusting user-provided or synthesized values.
+      - Preserve mask metadata through gather and slicing operations; `Representation::gather` is the reference behavior.
+      - Be explicit about strict versus approximate training semantics in comments, docs, and code review notes.
+      - Add regression tests for behavioral fixes, especially around masking, target positions, and checkpoint loading.
+      - Keep demos and smoke tests small, deterministic, and CPU-friendly.
+    </do>
+    <dont>
+      - Do not use `unwrap()` or `expect()` in library code. Return typed errors instead.
+      - Do not treat `jepa_train::JepaComponents::forward_step` as the semantic reference path for strict masking.
+      - Do not weaken parity tolerances or delete regression artifacts to make tests pass.
+      - Do not add dependencies, features, or manifest changes without approval.
+      - Do not update CLI flags without updating clap tests in `crates/jepa/src/cli.rs`.
+    </dont>
+  </patterns>
 
+  <commit_conventions>
+    Format commits as `type(scope): description`.
+    Allowed scopes in `CONTRIBUTING.md`: `core`, `vision`, `world`, `train`, `compat`, `cli`, `specs`.
+  </commit_conventions>
 </conventions>
 
-<critical_constraints>
-
-- Do not modify `SPECIFICATION.md` without explicit human approval.
-- Do not modify workspace or crate `Cargo.toml` files without explicit human approval.
-- Do not change existing public trait signatures without explicit human approval.
-- Do not claim ONNX runtime execution works for production use. Metadata inspection and initializer loading are proven; tract-based execution exists but is not production-grade.
-- Do not describe `JepaComponents::forward_step` as a faithful masked JEPA trainer. It masks after encoder forward (approximate). Use `IJepa::forward_step_strict` or `VJepa::forward_step_strict` for pre-attention masking.
-
-</critical_constraints>
-
-<gotchas>
-
-- `JepaComponents::forward_step` encodes entire input then slices tokens (post-encoder masking). This is because `Encoder::Input` is an associated type — cannot mask before encoder without modality-specific helpers. Use the strict paths for faithful JEPA.
-- `TransformerPredictor` expects `target_positions` to contain real flattened token indices, not offsets or masks.
-- `Representation::gather` preserves masks. Any downstream change that drops masks is a regression — always verify mask flow.
-- `OnnxModelInfo::from_file` distinguishes missing files from runtime-unavailable errors. Do not conflate these.
-- `jepa-train` computes losses but does not own an optimizer — the caller manages optimization (burn convention).
-- EMA momentum can be constant or cosine-scheduled (V-JEPA 2 style). Query via `.get_momentum(step)`.
-- Config validation is mandatory: always call `.validate()` on `JepaConfig` and `TrainConfig` before use.
-
-</gotchas>
-
 <workflows>
+  <new_feature>
+    1. Route the task to the smallest owning crate.
+    2. If the change requires `Cargo.toml`, `Cargo.lock`, CI files, scripts, parity fixtures, or `jepa-core` public contract files, stop and ask for approval.
+    3. Add or update the narrowest useful tests first in the owning crate.
+    4. Implement the feature using existing crate-local patterns before introducing new helpers.
+    5. Run the owning crate tests, then `cargo check --workspace --all-targets`.
+    6. Run `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo fmt -- --check`.
+    7. If strict image semantics changed, run `scripts/run_parity_suite.sh`.
+  </new_feature>
 
-<new_feature>
-1. Read relevant ARCHITECTURE.md section and any applicable RFC in SPECIFICATION.md
-2. Identify target crate and module. Check existing patterns in that crate.
-3. Write tests first (TDD): `#[cfg(test)] mod tests` with `TestBackend = burn_ndarray::NdArray<f32>`
-4. Implement until tests pass: `cargo test -p [crate]`
-5. Run `cargo clippy --all-targets -- -D warnings` — zero warnings
-6. Run `cargo fmt -- --check` — must pass
-7. Run `cargo test --workspace` — no regressions in other crates
-8. Self-review: check for mask preservation, correct tensor ranks, no unwrap in lib code
-</new_feature>
+  <bug_fix>
+    1. Reproduce the issue with a failing unit, integration, or parity test.
+    2. Fix the smallest layer that can own the behavior.
+    3. Re-run the targeted crate test command until green.
+    4. Expand to workspace-wide verification.
+    5. Check whether the fix changed public behavior and document it in `README.md` or `CHANGELOG.md` if needed.
+  </bug_fix>
 
-<bug_fix>
-1. Reproduce with a failing test first
-2. Fix the root cause
-3. Verify the test passes: `cargo test -p [crate] -- test_name`
-4. Run full workspace tests to check for regressions
-5. Run clippy and fmt
-</bug_fix>
-
-<adding_tests>
-1. Use `type TestBackend = burn_ndarray::NdArray<f32>` and `NdArrayDevice::Cpu`
-2. Test invariants, not implementation details
-3. Use tolerances for float comparison (1e-6 single ops, 1e-4 chains)
-4. Use proptest for numerical properties that should hold universally
-5. Name tests: `test_[what]_[condition]_[expected]`
-</adding_tests>
-
+  <checkpoint_or_onnx_change>
+    1. Decide whether the task is safetensors loading, key remapping, ONNX metadata, ONNX runtime execution, or CLI encode behavior.
+    2. Keep format-specific logic inside `jepa-compat`.
+    3. Prefer typed errors that distinguish missing files, invalid formats, and shape mismatches.
+    4. Run `cargo test -p jepa-compat` and `cargo test -p jepa` when CLI encode behavior changed.
+    5. If ONNX runtime or export assumptions changed, inspect `scripts/export_ijepa_onnx.py` and note any external Python requirements.
+  </checkpoint_or_onnx_change>
 </workflows>
 
 <boundaries>
+  <zone_map>
 
-<forbidden>
-DO NOT modify under any circumstances:
-- `.env`, `.env.*` — credentials/secrets
-- `SPECIFICATION.md` — RFC archive (requires human approval)
-</forbidden>
+| Zone | Paths | Rule |
+|------|-------|------|
+| Autonomous | `crates/jepa-vision/src/`, `crates/jepa-train/src/`, `crates/jepa-world/src/`, `crates/jepa-compat/src/`, `crates/jepa/src/`, `crates/*/examples/`, `crates/*/benches/`, `docs/`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `fuzz/fuzz_targets/`, `.codex/skills/` | Agent may create and modify freely, then run local verification |
+| Gated | `Cargo.toml`, `Cargo.lock`, `crates/*/Cargo.toml`, `fuzz/Cargo.toml`, `.github/workflows/`, `scripts/`, `specs/differential/`, `crates/jepa-core/src/lib.rs`, `crates/jepa-core/src/encoder.rs`, `crates/jepa-core/src/predictor.rs`, `crates/jepa-core/src/energy.rs`, `crates/jepa-core/src/masking.rs`, `crates/jepa-core/src/collapse.rs`, `crates/jepa-core/src/types.rs` | Read freely. Ask before editing |
+| Forbidden | `.env`, `.env.*`, `.git/`, `target/`, `fuzz/target/` | Never read or modify secrets or generated internals |
 
-<gated>
-Modify ONLY with explicit human approval:
-- `Cargo.toml` (root or any crate) — dependency/version changes
-- Public trait signatures in jepa-core — `Encoder`, `Predictor`, `EnergyFn`, `MaskingStrategy`, `CollapseRegularizer`
-- `.github/workflows/ci.yml` — CI pipeline
-- `scripts/` — build/deploy scripts
-</gated>
+  </zone_map>
 
-<safety_checks>
-Before any destructive operation:
-1. State what you are about to do
-2. State what could go wrong
-3. Wait for confirmation
-</safety_checks>
-
+  <safety_checks>
+    Before any destructive operation, fixture rewrite, or overwrite of a gated path:
+    1. State the exact file or command.
+    2. State the failure mode.
+    3. Wait for confirmation.
+  </safety_checks>
 </boundaries>
 
 <troubleshooting>
+  <known_issues>
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `the trait Backend is not implemented` | Missing generic bound or wrong backend type | Ensure function is generic over `B: Backend` |
-| `expected Tensor<_, 3> found Tensor<_, 2>` | Rank mismatch from sum/squeeze/reshape | Check operation — some ops change tensor rank |
-| `cannot move out of borrowed content` | Tensor consumed by operation | Use `.clone()` before the consuming operation |
-| E0432 unresolved import after adding type | Missing `pub use` in crate's lib.rs | Add re-export to lib.rs |
-| Float assertion fails intermittently | Tolerance too tight | Widen to 1e-5 or 1e-4 for accumulated operations |
-| Slow compilation after changes | burn macro re-expansion | Expected on first build; subsequent builds are incremental |
-| `cargo test` shows fewer tests than expected | Test filter active or compile error | Run `cargo test -p [crate]` without filter |
+| `input shape mismatch: expected ... got ...` | ONNX model has static or differently-bound input dims | Use `OnnxEncoder::from_path_with_input_shape(...)` or align the caller shape |
+| `WarmupExceedsTotal` or invalid train CLI config | `warmup` is larger than `steps`, or another config invariant failed | Fix the CLI args and re-run config validation |
+| `test_ijepa_strict_fixture_parity` appears ignored | The parity test is intentionally gated behind the fixture runner | Run `scripts/run_parity_suite.sh` from repo root |
+| `failed to inject weights from ...` | safetensors checkpoint shape or key mapping does not match the chosen preset | Use the matching `VitConfig` preset and `ijepa_vit_keymap()` path |
+| `expected Tensor<_, 3> found Tensor<_, 2>` | A `reshape`, `sum`, or `squeeze` changed rank unexpectedly | Inspect intermediate dims and restore `[batch, seq, embed]` shape |
+| `Blocking waiting for file lock on build directory` | Multiple cargo jobs are sharing the same checkout | Serialize cargo commands or wait for the competing job to finish |
 
-<recovery>
-1. Read the FIRST compiler error — later errors cascade from it
-2. Use `cargo check` for faster feedback (no codegen)
-3. Run `RUST_BACKTRACE=1 cargo test` for runtime panics
-4. Check proptest-regressions/ if a proptest fails — fix the bug, don't delete the file
-5. If stuck, state the problem clearly and ask for help
-</recovery>
+  </known_issues>
 
+  <recovery_patterns>
+    1. Read the first compiler or runtime error before looking at cascaded failures.
+    2. Run the narrowest crate command that can reproduce the problem.
+    3. If the change touched strict image behavior, run `scripts/run_parity_suite.sh`.
+    4. Check `git status --short` for overlapping in-flight changes before assuming the repo is clean.
+    5. If you suspect a shared contract regression, review `crates/jepa-core/src/lib.rs` and the related public type file.
+  </recovery_patterns>
 </troubleshooting>
 
-<skills>
-Modular skills in `.codex/skills/` (symlinked at `.claude/skills/` and `.agents/skills/`).
+<environment>
+  Harness: terminal agents that read `CLAUDE.md` and `.codex/skills/*.md`
+  File system scope: the full repository root, including the nested `fuzz/` workspace
+  Network access: optional [verify]. Required for external model downloads and Python export workflows
+  Tool access: `git`, `cargo`, `rustfmt`, `clippy`, `python3`, and shell utilities
+  Human interaction model: synchronous chat. Ask before gated edits and destructive operations
+</environment>
 
-| Skill | File | When to load |
-|-------|------|-------------|
-| Implementing RFCs | implementing-rfcs.md | Turning SPECIFICATION.md RFCs into Rust code |
-| Testing | testing.md | Writing tests, debugging test failures, coverage |
-| Burn Backend | burn-backend.md | Tensor operations, backend selection, burn API |
-| Debugging | debugging.md | Build failures, test failures, numerical issues |
-| Compat & Loading | compat-loading.md | safetensors, ONNX, checkpoint loading, key remapping |
-| CI & Verification | ci-verification.md | CI pipeline, quality gates, release readiness |
+<skills>
+  Repo-local skills live in `.codex/skills/` with symlinks at `.claude/skills/` and `.agents/skills/`.
+  Load only the file that matches the active domain.
+
+  Available skills:
+  - `workspace-development.md`: route work to the correct crate and keep shared-contract changes contained
+  - `strict-vision-models.md`: strict image and video semantics, burn tensor shape discipline, parity-sensitive changes
+  - `testing-and-parity.md`: unit, integration, property, fuzz, and strict parity workflows
+  - `checkpoint-and-onnx.md`: safetensors, key maps, ONNX metadata, runtime, and export assumptions
+  - `cli-and-demos.md`: clap surfaces, command reporters, demo flows, and TUI event handling
 </skills>
 
-<current_state>
-
-- All verification passes locally: build, 365 tests, clippy, fmt, docs.
-- Strict masked-encoder paths: `IJepa::forward_step_strict` (image), `VJepa::forward_step_strict` (video).
-- Differential parity: 3 checked-in strict I-JEPA image fixtures run in CI.
-- Safetensors checkpoint loading functional. ONNX metadata + initializer loading work. Tract-based runtime exists.
-- CLI: 6 subcommands (`models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`).
-- TUI: 5 tabs (Dashboard, Models, Training, Checkpoint, About).
-- Release-candidate rehearsal complete locally; external crates.io publish pending approval.
-- Still missing: strict video parity proof, crates.io release.
-- Active planning: `PRODUCTION_GAP.md`, `ROADMAP.md`, `WORK_PACKAGES.md`.
-
-</current_state>
-
 <memory>
+  <project_decisions>
+    Source of truth: `docs/agentic/project-decisions.md`
+    Update it when a task introduces or confirms a durable architectural or workflow decision.
+  </project_decisions>
 
-<decisions>
-2026-03 Strict masked paths alongside generic — Faithful JEPA requires pre-attention masking; generic trainer can't do this with opaque Encoder::Input — Rejected: modifying Encoder trait (too invasive)
-2026-03 thiserror 2 for all error types — Typed errors over panics for caller-triggerable misuse — Rejected: anyhow (loses type info)
-2026-03 ONNX scoped to metadata/initializers — Runtime execution via tract exists but not proven production-grade — Rejected: claiming full ONNX support prematurely
-2026-03 No optimizer in jepa-train — Caller owns optimization per burn convention — Rejected: bundled optimizer (limits flexibility)
-</decisions>
-
-<lessons>
-- Mask disjointness must be validated early — silent overlap causes subtle parity bugs.
-- Representation::gather must preserve masks — this was a regression once, caught by tests.
-- TransformerPredictor needs real flattened indices, not relative offsets — mismatch causes silent wrong results.
-- Config .validate() catches dimension mismatches early — always call before use.
-</lessons>
-
+  <lessons_learned>
+    Source of truth: `docs/agentic/lessons-learned.md`
+    Append short, reusable entries when a failure mode, debugging shortcut, or verification rule proves useful more than once.
+  </lessons_learned>
 </memory>

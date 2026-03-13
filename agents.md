@@ -1,128 +1,119 @@
-# Multi-Agent Orchestration for jepa-rs
-
-<project>
-jepa-rs is an alpha Rust workspace for JEPA components on top of burn 0.20.1.
-
-Current state as of March 13, 2026:
-- Workspace build, tests, clippy, docs, parity, and package smoke pass locally.
-- Strict image and video masked helpers exist with no-leakage regression coverage.
-- Differential parity runs in CI for three strict I-JEPA image fixtures.
-- Safetensors support is functional, and ONNX metadata inspection plus initializer loading are implemented.
-- Full ONNX runtime execution remains out of scope unless explicitly approved.
-- The generic trainer remains approximate by design and must not be treated as the strict semantic reference path.
-- CLI binary (`jepa`) provides 6 subcommands and an interactive TUI dashboard.
-</project>
+<overview>
+Use this file only when a task benefits from parallel work. If a single agent is active, treat it as a decomposition and review policy.
+</overview>
 
 <roles>
 
-| Role | Responsibility | Boundaries |
-|------|----------------|------------|
-| Orchestrator | Plan work, split tasks, manage conflicts | Does not write implementation code |
-| Implementer | Modify library code and tests | Does not change public trait signatures without approval |
-| Reviewer | Audit correctness, numerical behavior, safety | Does not implement fixes directly |
-| Tester | Extend tests, fixtures, and differential checks | Restrict changes to tests and fixtures where possible |
+| Role | Model Tier | Responsibility | Boundaries |
+|------|------------|----------------|------------|
+| Orchestrator | frontier | Decompose work, assign file ownership, review integration risk | Never lands implementation code directly |
+| Implementer | frontier | Make crate-scoped code changes and run local verification | Never edits gated paths without approval |
+| Specialist | frontier | Handle domain-heavy work in `jepa-vision`, `jepa-compat`, or `crates/jepa` | Only works inside its declared files |
+| Reviewer | frontier | Check correctness, regressions, parity impact, and boundary violations | Never fixes issues in the same pass; sends work back |
 
 </roles>
 
 <shared_context>
+Read `CLAUDE.md` first. Then load only the relevant repo-local skill from `.codex/skills/`.
 
-Read first:
-- [`README.md`](./README.md)
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md)
-- [`PRODUCTION_GAP.md`](./PRODUCTION_GAP.md)
-- [`ROADMAP.md`](./ROADMAP.md)
-- [`WORK_PACKAGES.md`](./WORK_PACKAGES.md)
-- [`SPECIFICATION.md`](./SPECIFICATION.md)
-- [`docs/QUALITY_GATES.md`](./docs/QUALITY_GATES.md)
-- [`docs/RELEASE.md`](./docs/RELEASE.md)
-- [`specs/differential/README.md`](./specs/differential/README.md)
-
-Critical crates:
-- `crates/jepa-core`: shared contracts
-- `crates/jepa-vision`: vision encoders and predictor
-- `crates/jepa-train`: training orchestration
-- `crates/jepa-compat`: safetensors and ONNX adapter
-- `crates/jepa`: CLI binary and TUI dashboard
-- planning source of truth: `PRODUCTION_GAP.md`, `ROADMAP.md`, `WORK_PACKAGES.md`
-
+Common routing:
+- Workspace or cross-crate change: `workspace-development.md`
+- Vision or masking change: `strict-vision-models.md`
+- Test, CI, or parity work: `testing-and-parity.md`
+- safetensors or ONNX work: `checkpoint-and-onnx.md`
+- CLI, demos, or TUI work: `cli-and-demos.md`
 </shared_context>
 
-<parallel_execution>
+<delegation_protocol>
+1. Analyze the task and assign an owning crate before any edits start.
+2. Compare target file sets for overlap.
+3. Delegate routine crate-local work to an Implementer.
+4. Delegate parity-sensitive, ONNX, or TUI work to a Specialist when those domains dominate the task.
+5. Reserve architectural or boundary decisions for the Orchestrator.
+6. Require a Reviewer pass whenever the task touches `jepa-core`, strict parity fixtures, manifests, or public CLI behavior.
+7. Integrate only after all assigned file owners report green targeted tests.
+</delegation_protocol>
 
-Safe to parallelize:
-- documentation updates
-- test additions
-- `jepa-compat` work that does not require dependency changes
-- benchmarks, fuzz targets, and differential fixtures
-
-Serialize these:
-- any change to `jepa-core` public traits
-- any `lib.rs` re-export changes
-- any `Cargo.toml` change
-
-Conflict protocol:
-1. Declare target files before editing.
-2. If another agent already owns a file, wait.
-3. Treat `Cargo.toml` edits as human-gated work.
-
-</parallel_execution>
-
-<task_template>
-
+<task_format>
 ```text
-## Task: [short description]
+## Task: [clear title]
 
 Objective:
-- [specific deliverable]
+- [what done looks like]
 
 Context:
-- Read the relevant RFC in SPECIFICATION.md
-- Read ARCHITECTURE.md if the change crosses crate boundaries
-- Reuse patterns from jepa-core where possible
+- Files to read: [exact paths]
+- Files to modify: [exact paths]
+- Related crates or types: [exact names]
 
 Acceptance criteria:
-- [ ] Code matches the current implementation constraints
-- [ ] Tests cover the new or fixed behavior
-- [ ] `cargo test` passes
-- [ ] `cargo clippy --all-targets -- -D warnings` passes
-- [ ] `cargo fmt -- --check` passes
+- [ ] Targeted tests pass: [exact command]
+- [ ] Workspace checks pass if shared behavior changed
+- [ ] No gated path was edited without approval
 
 Constraints:
-- Do not change public trait signatures without approval
-- Do not modify SPECIFICATION.md
-- Do not add dependencies without approval
+- Do not modify: [out-of-scope paths]
+- Escalate if: [public API, manifests, parity fixtures, CI, scripts]
+
+Handoff:
+- Report changed files, commands run, and residual risk
 ```
+</task_format>
 
-</task_template>
+<state_machine>
+`PENDING -> ASSIGNED -> IN_PROGRESS -> REVIEW -> APPROVED -> DONE`
 
-<gotchas>
+Alternative exits:
+- `IN_PROGRESS -> BLOCKED` when the agent reports what failed, what was tried, and what input is needed
+- `REVIEW -> REJECTED` when the reviewer names exact defects and the expected fix
+- `BLOCKED -> ESCALATED` when the blocker is a gated edit or unresolved design conflict
+</state_machine>
 
-- `JepaComponents::forward_step` is not a strict masked-encoder trainer. Do not design downstream work as if target tokens are hidden before encoder attention.
-- `TransformerPredictor` now expects real flattened token indices in `target_positions`.
-- `Representation::gather` preserves masks. Rely on that instead of rebuilding token masks by hand.
-- Use `scripts/run_parity_suite.sh` for the current reference check; the default bundled fixture is the source of truth for the strict image parity path.
-- ONNX tasks that need runtime execution still require explicit approval and likely dependency work; escalate before expanding scope.
+<parallel_execution>
+Safe to parallelize:
+- Different crates with no shared file ownership
+- Docs and skill updates
+- New tests in different crates
+- `jepa-world` work alongside `jepa-compat` or `crates/jepa`
 
-</gotchas>
+Must serialize:
+- `Cargo.toml`, `Cargo.lock`, `.github/workflows/ci.yml`
+- `scripts/` and `specs/differential/`
+- `crates/jepa-core/src/lib.rs` and other gated public contract files
+- Any task that changes clap flags in `crates/jepa/src/cli.rs` and the corresponding command implementation
+
+Conflict protocol:
+1. Detect overlap before editing.
+2. Give priority to the task with the smaller, more central file set.
+3. Wait for that task to land.
+4. Rebase, re-run targeted tests, then continue.
+</parallel_execution>
+
+<review_gates>
+Reviewer checklist:
+- Public behavior matches strict versus approximate semantics honestly
+- New or changed CLI flags have clap tests
+- Mask flow and target positions are covered by tests when touched
+- `cargo check --workspace --all-targets`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo fmt -- --check` ran when needed
+- `scripts/run_parity_suite.sh` ran for strict image-path changes
+</review_gates>
 
 <escalation>
+Escalate to a human when:
+- A `Cargo.toml` or `Cargo.lock` edit is required
+- A `jepa-core` public contract or re-export surface must change
+- A parity fixture or tolerance must change
+- CI workflow or script changes are needed
+- Confidence drops below 70 percent on a behavior-changing decision
 
-Escalate when:
-- a public trait signature must change
-- a dependency must be added or updated
-- strict masked-encoder semantics require an architectural change across crates
-- a performance fix conflicts with correctness or clarity
-
-Format:
-
+Escalation format:
 ```text
 **ESCALATION**: [one-line summary]
-**Context**: [crate/module]
+**Context**: [crate or path]
 **Blocker**: [specific issue]
 **Options**:
-1. [Option] — Tradeoff: [gain/lose]
-2. [Option] — Tradeoff: [gain/lose]
+1. [option] - Tradeoff: [gain and cost]
+2. [option] - Tradeoff: [gain and cost]
 **Recommendation**: [best option]
 ```
-
 </escalation>
