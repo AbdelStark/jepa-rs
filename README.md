@@ -304,26 +304,96 @@ cargo bench --workspace --no-run
 - Differential parity runs in CI for strict image fixtures; broader video parity is pending
 - Workspace crates not yet published to crates.io (depends on git for now)
 
+## JEPA Variants: What We Implement
+
+The JEPA family has grown across several papers. Here is exactly what jepa-rs implements and how each component maps to a specific paper and reference codebase.
+
+### I-JEPA (Image)
+
+| | |
+|---|---|
+| **Paper** | [Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture](https://arxiv.org/abs/2301.08243) (Assran et al., CVPR 2023) |
+| **Reference code** | [`facebookresearch/ijepa`](https://github.com/facebookresearch/ijepa) (archived) |
+| **jepa-rs struct** | `IJepa<B>` in `jepa-vision` ([`crates/jepa-vision/src/image.rs`](crates/jepa-vision/src/image.rs)) |
+| **What it does** | Self-supervised image representation learning. A ViT context-encoder sees only visible patches; a lightweight predictor predicts representations of masked target patches. The target-encoder is an EMA copy of the context-encoder. |
+| **Masking** | `BlockMasking` — contiguous rectangular blocks on the 2D patch grid. |
+| **Faithful path** | `IJepa::forward_step_strict` — filters tokens *before* encoder self-attention (matches the paper). |
+| **Approximate path** | `JepaComponents::forward_step` in `jepa-train` — encodes full input then slices (post-encoder masking; cheaper but not faithful). |
+| **Parity status** | 3 checked-in strict image fixtures verified in CI. |
+
+### V-JEPA (Video)
+
+| | |
+|---|---|
+| **Paper** | [Revisiting Feature Prediction for Learning Visual Representations from Video](https://arxiv.org/abs/2404.08471) (Bardes et al., 2024) |
+| **Reference code** | [`facebookresearch/jepa`](https://github.com/facebookresearch/jepa) |
+| **jepa-rs struct** | `VJepa<B>` in `jepa-vision` ([`crates/jepa-vision/src/video.rs`](crates/jepa-vision/src/video.rs)) |
+| **What it does** | Extends I-JEPA to video. A ViT encoder processes 3D tubelets (space + time) with 3D RoPE. |
+| **Masking** | `SpatiotemporalMasking` — contiguous 3D regions in the spatiotemporal grid. |
+| **Faithful path** | `VJepa::forward_step_strict` — pre-attention masking. |
+| **Parity status** | Implemented but strict video parity not yet proven (pending). |
+
+### V-JEPA 2 features
+
+| | |
+|---|---|
+| **Paper** | [V-JEPA 2: Self-Supervised Video Models Enable Understanding, Prediction and Planning](https://arxiv.org/abs/2506.09985) (Bardes et al., 2025) |
+| **Reference code** | [`facebookresearch/vjepa2`](https://github.com/facebookresearch/vjepa2) |
+| **jepa-rs support** | Not a separate struct. The `VJepa<B>` struct can be configured with V-JEPA 2 features. |
+| **What we take from V-JEPA 2** | **Cosine momentum schedule** for EMA — `CosineMomentumSchedule` in `jepa-core` (`Ema::with_cosine_schedule`). Momentum ramps from base (e.g. 0.996) to 1.0 over training. Also: `MultiBlockMasking` strategy, ViT-Giant/14 preset. |
+| **What we don't implement** | The full V-JEPA 2 training recipe, attentive probing, or the planning/action heads from the paper. |
+
+### Hierarchical JEPA (H-JEPA) — experimental
+
+| | |
+|---|---|
+| **Paper** | Inspired by [A Path Towards Autonomous Machine Intelligence](https://openreview.net/pdf?id=BZ5a1r-kVsf) (LeCun, 2022) — the original JEPA position paper describes hierarchical prediction as a long-term goal. No standalone H-JEPA paper exists yet. |
+| **jepa-rs struct** | `HierarchicalJepa<B>` in `jepa-world` ([`crates/jepa-world/src/hierarchy.rs`](crates/jepa-world/src/hierarchy.rs)) |
+| **What it does** | Stacks multiple JEPA levels at different temporal strides (e.g. stride 2, 6, 24). Each level has its own encoder and predictor. This is **experimental** — no reference implementation exists. |
+
+### Action-Conditioned World Model — experimental
+
+| | |
+|---|---|
+| **Paper** | Draws from both the LeCun position paper and [V-JEPA 2](https://arxiv.org/abs/2506.09985) (planning component). |
+| **jepa-rs structs** | `Action<B>`, `ActionConditionedPredictor<B>` trait, `RandomShootingPlanner` in `jepa-world` ([`crates/jepa-world/src/action.rs`](crates/jepa-world/src/action.rs), [`crates/jepa-world/src/planner.rs`](crates/jepa-world/src/planner.rs)) |
+| **What it does** | Predicts next-state representations given current state + action. Supports random-shooting (CEM) planning. This is **experimental**. |
+
+### What about EB-JEPA?
+
+[EB-JEPA](https://arxiv.org/abs/2602.03604) (Terver et al., 2026) is a separate lightweight Python library for energy-based JEPA. jepa-rs is **not** an implementation of EB-JEPA. We reference it for comparison only. The energy functions in `jepa-core` (L2, Cosine, SmoothL1) are standard loss formulations, not the EB-JEPA energy framework.
+
+### Quick summary
+
+| Variant | Paper | jepa-rs struct | Status |
+|---------|-------|----------------|--------|
+| I-JEPA | Assran et al. 2023 | `IJepa<B>` | Strict path implemented, parity verified |
+| V-JEPA | Bardes et al. 2024 | `VJepa<B>` | Strict path implemented, parity pending |
+| V-JEPA 2 | Bardes et al. 2025 | `VJepa<B>` + cosine EMA schedule | Select features only |
+| H-JEPA | LeCun 2022 (position paper) | `HierarchicalJepa<B>` | Experimental, no reference impl |
+| World model | LeCun 2022 + V-JEPA 2 | `ActionConditionedPredictor`, `RandomShootingPlanner` | Experimental |
+| EB-JEPA | Terver et al. 2026 | **Not implemented** | Referenced for comparison only |
+
 ## References
 
 ### Papers
 
 | Paper | Focus |
 |-------|-------|
-| [A Path Towards Autonomous Machine Intelligence](https://openreview.net/pdf?id=BZ5a1r-kVsf) | JEPA position paper (LeCun, 2022) |
-| [I-JEPA](https://arxiv.org/abs/2301.08243) | Self-supervised image learning (Assran et al., 2023) |
-| [V-JEPA](https://openreview.net/forum?id=WFYbBOEOtv) | Latent video prediction (Bardes et al., 2024) |
-| [V-JEPA 2](https://arxiv.org/abs/2506.09985) | Video understanding + planning (Bardes et al., 2025) |
-| [EB-JEPA](https://arxiv.org/abs/2602.03604) | Lightweight JEPA library (2026) |
+| [A Path Towards Autonomous Machine Intelligence](https://openreview.net/pdf?id=BZ5a1r-kVsf) | JEPA position paper — hierarchical world models (LeCun, 2022) |
+| [I-JEPA](https://arxiv.org/abs/2301.08243) | Self-supervised image learning with masked prediction in latent space (Assran et al., CVPR 2023) |
+| [V-JEPA](https://arxiv.org/abs/2404.08471) | Extension to video with spatiotemporal masking (Bardes et al., 2024) |
+| [V-JEPA 2](https://arxiv.org/abs/2506.09985) | Video understanding, prediction, and planning (Bardes et al., 2025) |
+| [EB-JEPA](https://arxiv.org/abs/2602.03604) | Lightweight energy-based JEPA library — referenced for comparison (Terver et al., 2026) |
 
-### Official implementations
+### Official reference implementations
 
-| Repo | Models |
-|------|--------|
-| [`facebookresearch/ijepa`](https://github.com/facebookresearch/ijepa) | I-JEPA (archived) |
-| [`facebookresearch/jepa`](https://github.com/facebookresearch/jepa) | V-JEPA |
-| [`facebookresearch/vjepa2`](https://github.com/facebookresearch/vjepa2) | V-JEPA 2 |
-| [`facebookresearch/eb_jepa`](https://github.com/facebookresearch/eb_jepa) | EB-JEPA tutorial |
+| Repo | Models | Relationship to jepa-rs |
+|------|--------|------------------------|
+| [`facebookresearch/ijepa`](https://github.com/facebookresearch/ijepa) | I-JEPA (archived) | Primary reference for `IJepa<B>` and key remapping |
+| [`facebookresearch/jepa`](https://github.com/facebookresearch/jepa) | V-JEPA | Primary reference for `VJepa<B>` |
+| [`facebookresearch/vjepa2`](https://github.com/facebookresearch/vjepa2) | V-JEPA 2 | Reference for cosine EMA schedule, ViT-G config |
+| [`facebookresearch/eb_jepa`](https://github.com/facebookresearch/eb_jepa) | EB-JEPA tutorial | Not implemented — comparison only |
 
 ## Contributing
 
