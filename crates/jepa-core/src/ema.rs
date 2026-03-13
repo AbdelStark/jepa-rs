@@ -443,6 +443,33 @@ mod tests {
         assert_eq!(result.dims(), [2, 4, 8]);
     }
 
+    #[test]
+    fn test_cosine_schedule_zero_total_steps() {
+        let schedule = CosineMomentumSchedule {
+            base_momentum: 0.996,
+            final_momentum: 1.0,
+            total_steps: 0,
+        };
+        // Should return final_momentum without panic
+        let m = schedule.get_momentum(0);
+        assert!((m - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_cosine_schedule_beyond_total_steps() {
+        let schedule = CosineMomentumSchedule {
+            base_momentum: 0.996,
+            final_momentum: 1.0,
+            total_steps: 100,
+        };
+        // Steps beyond total should be clamped
+        let m = schedule.get_momentum(200);
+        assert!(
+            (m - 1.0).abs() < 1e-3,
+            "beyond-total-steps momentum should be near final: got {m}"
+        );
+    }
+
     // --- Property-based tests ---
 
     proptest! {

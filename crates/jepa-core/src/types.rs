@@ -202,7 +202,12 @@ impl MaskSpec {
     }
 
     /// Fraction of tokens masked as targets.
+    ///
+    /// Returns 0.0 if `total_tokens` is zero (avoids division by zero).
     pub fn mask_ratio(&self) -> f64 {
+        if self.total_tokens == 0 {
+            return 0.0;
+        }
         self.target_indices.len() as f64 / self.total_tokens as f64
     }
 }
@@ -427,6 +432,56 @@ mod tests {
             total_tokens: 6,
         };
         assert!((mask.mask_ratio() - 1.0 / 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mask_ratio_zero_total_tokens() {
+        let mask = MaskSpec {
+            context_indices: vec![],
+            target_indices: vec![],
+            total_tokens: 0,
+        };
+        // Should return 0.0 instead of NaN/panic
+        assert_eq!(mask.mask_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_representation_gather_empty_indices() {
+        let tensor = Tensor::<TestBackend, 3>::ones([2, 4, 8], &device());
+        let repr = Representation::new(tensor);
+        let gathered = repr.gather(&[]);
+        assert_eq!(gathered.batch_size(), 2);
+        assert_eq!(gathered.seq_len(), 0);
+        assert_eq!(gathered.embed_dim(), 8);
+    }
+
+    #[test]
+    fn test_representation_gather_all_indices() {
+        let tensor = Tensor::<TestBackend, 3>::ones([1, 3, 4], &device());
+        let repr = Representation::new(tensor);
+        let gathered = repr.gather(&[0, 1, 2]);
+        assert_eq!(gathered.seq_len(), 3);
+    }
+
+    #[test]
+    fn test_representation_gather_with_mask_empty_indices() {
+        let embeddings = Tensor::<TestBackend, 3>::ones([1, 4, 2], &device());
+        let mask = Tensor::<TestBackend, 2>::ones([1, 4], &device());
+        let repr = Representation::with_mask(embeddings, mask);
+        let gathered = repr.gather(&[]);
+        assert_eq!(gathered.seq_len(), 0);
+        assert!(gathered.has_mask());
+    }
+
+    #[test]
+    fn test_mask_spec_validate_single_context_single_target() {
+        let mask = MaskSpec {
+            context_indices: vec![0],
+            target_indices: vec![1],
+            total_tokens: 2,
+        };
+        assert!(mask.validate().is_ok());
+        assert!((mask.mask_ratio() - 0.5).abs() < 1e-10);
     }
 
     #[test]

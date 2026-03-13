@@ -1,7 +1,7 @@
 <identity>
 jepa-rs is an alpha Rust workspace for JEPA (Joint Embedding Predictive Architecture) components built on burn 0.20.1.
 
-The workspace compiles cleanly, 356 tests pass, safetensors and ONNX metadata/initializer loading work, strict masked-encoder paths exist for image and video, and a CLI binary with interactive TUI dashboard is included.
+The workspace compiles cleanly, 365 tests pass, safetensors and ONNX metadata/initializer loading work, strict masked-encoder paths exist for image and video, and a CLI binary with interactive TUI dashboard is included.
 </identity>
 
 <architecture>
@@ -92,7 +92,7 @@ ARCHITECTURE.md          # Crate boundaries [read before changing]
 | Task | Command | Notes |
 |------|---------|-------|
 | Build | `cargo build` | All 6 crates + binary |
-| Test (all) | `cargo test --workspace` | 356 tests, ~30s |
+| Test (all) | `cargo test --workspace` | 365 tests, ~30s |
 | Test (crate) | `cargo test -p jepa-core` | Focused per-crate runs |
 | Clippy | `cargo clippy --all-targets -- -D warnings` | Zero warnings required |
 | Format check | `cargo fmt -- --check` | Must pass before commit |
@@ -235,7 +235,7 @@ Modular skills in `.codex/skills/` (symlinked at `.claude/skills/` and `.agents/
 
 <current_state>
 
-- All verification passes locally: build, 356 tests, clippy, fmt, docs.
+- All verification passes locally: build, 365 tests, clippy, fmt, docs.
 - Strict masked-encoder paths: `IJepa::forward_step_strict` (image), `VJepa::forward_step_strict` (video).
 - Differential parity: 3 checked-in strict I-JEPA image fixtures run in CI.
 - Safetensors checkpoint loading functional. ONNX metadata + initializer loading work. Tract-based runtime exists.

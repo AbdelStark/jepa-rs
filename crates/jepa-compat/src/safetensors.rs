@@ -476,6 +476,21 @@ mod tests {
     }
 
     #[test]
+    fn test_load_checkpoint_from_invalid_bytes() {
+        let result = load_checkpoint_from_bytes(b"not a safetensors file", &[]);
+        assert!(matches!(result, Err(LoadError::Parse(_))));
+    }
+
+    #[test]
+    fn test_load_checkpoint_empty_mappings() {
+        let data = create_test_safetensors(&[("norm.weight", &[4], &[1.0f32; 4])]);
+        // With empty mappings, all keys should be unmapped
+        let ckpt = load_checkpoint_from_bytes(&data, &[]).unwrap();
+        assert!(ckpt.is_empty());
+        assert_eq!(ckpt.unmapped_keys.len(), 1);
+    }
+
+    #[test]
     fn test_loaded_tensor_original_key_preserved() {
         let data = create_test_safetensors(&[(
             "module.blocks.7.attn.proj.weight",

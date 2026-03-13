@@ -654,7 +654,11 @@ impl<B: Backend> VJepa<B> {
         CR: CollapseRegularizer<B>,
     {
         self.try_forward_step_strict(video, mask, energy_fn, regularizer, reg_weight)
-            .expect("strict V-JEPA forward step requires a valid mask and predictor positions within capacity")
+            .expect(
+                "VJepa::forward_step_strict failed — mask must be valid (disjoint, non-empty) \
+                 and target count must not exceed predictor capacity; \
+                 use try_forward_step_strict for error handling",
+            )
     }
 
     /// Execute a strict masked V-JEPA forward step with typed error reporting.

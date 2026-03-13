@@ -227,7 +227,7 @@ All tensor-bearing APIs are generic over `B: Backend`, allowing transparent exec
 
 jepa-rs provides ONNX metadata inspection and initializer loading through `jepa-compat`. This allows inspecting model structure, input/output specs, and importing weight initializers from `.onnx` files.
 
-**Current scope**: metadata inspection and weight import only. Full ONNX graph execution is not yet implemented.
+**Current scope**: metadata inspection and weight import are production-ready. Tract-based ONNX graph execution exists (`OnnxSession`, `OnnxEncoder`) but is not yet production-grade — it is functional for prototyping and testing.
 
 ## Examples
 
@@ -294,7 +294,7 @@ cargo bench --workspace --no-run
 - ONNX metadata inspection and initializer loading
 - Pretrained model registry with download URLs
 - Differential parity tests against 3 checked-in strict image fixtures
-- Comprehensive test suite (400+ tests), property-based testing, fuzz targets
+- Comprehensive test suite (365 tests), property-based testing, fuzz targets
 - All standard ViT configs: ViT-S/16, ViT-B/16, ViT-L/16, ViT-H/14, ViT-H/16, ViT-G/16
 
 ### Known limitations
