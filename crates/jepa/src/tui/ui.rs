@@ -8,8 +8,8 @@ use ratatui::widgets::{
 };
 use ratatui::Frame;
 
-use super::app::{App, Tab, TrainingState};
-use crate::demo::DemoId;
+use super::app::{App, InferenceState, Tab, TrainingState};
+use crate::demo::{DemoId, InferenceDemoId};
 use crate::fmt_utils::format_params;
 
 // Color palette — Catppuccin Mocha
@@ -132,6 +132,7 @@ fn draw_content(f: &mut Frame, area: Rect, app: &App) {
         Tab::Dashboard => draw_dashboard(f, area, app),
         Tab::Models => draw_models(f, area, app),
         Tab::Training => draw_training(f, area, app),
+        Tab::Inference => draw_inference(f, area, app),
         Tab::Checkpoint => draw_checkpoint(f, area, app),
         Tab::About => draw_about(f, area, app),
     }
@@ -142,6 +143,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         Tab::Dashboard => "Tab:switch  ?:help  q:quit",
         Tab::Models => "↑↓/jk:navigate  Tab:switch  ?:help  q:quit",
         Tab::Training => "↑↓/jk:choose  Enter/s:run  r:rerun  c:clear  Tab:switch  ?:help  q:quit",
+        Tab::Inference => "↑↓/jk:choose  Enter/s:run  r:rerun  c:clear  Tab:switch  ?:help  q:quit",
         Tab::Checkpoint => "↑↓/jk:scroll  Tab:switch  ?:help  q:quit",
         Tab::About => "Tab:switch  ?:help  q:quit",
     };
@@ -170,10 +172,11 @@ fn draw_dashboard(f: &mut Frame, area: Rect, app: &App) {
     let card_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
         ])
         .split(chunks[0]);
 
@@ -196,7 +199,7 @@ fn draw_dashboard(f: &mut Frame, area: Rect, app: &App) {
     draw_status_card(
         f,
         card_chunks[2],
-        "Demo Runner",
+        "Training",
         match app.training.state {
             TrainingState::Idle => "Ready",
             TrainingState::Running => "Running",
@@ -214,6 +217,24 @@ fn draw_dashboard(f: &mut Frame, area: Rect, app: &App) {
     draw_status_card(
         f,
         card_chunks[3],
+        "Inference",
+        match app.inference.state {
+            InferenceState::Idle => "Ready",
+            InferenceState::Running => "Running",
+            InferenceState::Complete => "Done",
+            InferenceState::Failed => "Failed",
+        },
+        match app.inference.state {
+            InferenceState::Idle => SUBTEXT,
+            InferenceState::Running => SAPPHIRE,
+            InferenceState::Complete => TEAL,
+            InferenceState::Failed => PINK,
+        },
+        app.inference.selected_demo().title(),
+    );
+    draw_status_card(
+        f,
+        card_chunks[4],
         "Backends",
         "NdArray",
         PEACH,
@@ -781,6 +802,384 @@ fn draw_training_log(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(panel, area);
 }
 
+// ── Inference ────────────────────────────────────────────────────────
+
+fn draw_inference(f: &mut Frame, area: Rect, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(7),  // Hero
+            Constraint::Min(16),    // Demo body
+            Constraint::Length(10), // Execution log
+        ])
+        .margin(1)
+        .split(area);
+
+    draw_inference_hero(f, chunks[0], app);
+
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(34), Constraint::Percentage(66)])
+        .split(chunks[1]);
+
+    draw_inference_catalog(f, body[0], app);
+    draw_inference_monitor(f, body[1], app);
+    draw_inference_log(f, chunks[2], app);
+}
+
+fn draw_inference_hero(f: &mut Frame, area: Rect, app: &App) {
+    let selected_demo = app.inference.selected_demo();
+    let state_color = match app.inference.state {
+        InferenceState::Idle => SUBTEXT,
+        InferenceState::Running => SAPPHIRE,
+        InferenceState::Complete => TEAL,
+        InferenceState::Failed => PINK,
+    };
+    let state_label = match app.inference.state {
+        InferenceState::Idle => "READY",
+        InferenceState::Running => "RUNNING",
+        InferenceState::Complete => "COMPLETE",
+        InferenceState::Failed => "FAILED",
+    };
+    let (height, width) = selected_demo.input_size();
+
+    let hero = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(68), Constraint::Percentage(32)])
+        .split(area);
+
+    let intro = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled(" ◆ ", Style::default().fg(SAPPHIRE)),
+            Span::styled(selected_demo.title(), Style::default().fg(TEXT).bold()),
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                format!("[{state_label}]"),
+                Style::default().fg(state_color).bold(),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("  {}", selected_demo.subtitle()),
+            Style::default().fg(SUBTEXT),
+        )),
+        Line::from(vec![
+            Span::styled("  Runtime: ", Style::default().fg(OVERLAY)),
+            Span::styled(
+                selected_demo.estimated_duration(),
+                Style::default().fg(PEACH),
+            ),
+            Span::styled("    Preset: ", Style::default().fg(OVERLAY)),
+            Span::styled(
+                format!("{:?}", selected_demo.preset()),
+                Style::default().fg(LAVENDER),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Inputs: ", Style::default().fg(OVERLAY)),
+            Span::styled(
+                format!(
+                    "{} pattern samples at {}x{}",
+                    selected_demo.sample_count(),
+                    height,
+                    width
+                ),
+                Style::default().fg(TEXT),
+            ),
+            Span::styled("    Engine: ", Style::default().fg(OVERLAY)),
+            Span::styled(selected_demo.engine_note(), Style::default().fg(BLUE)),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .title(Line::from(vec![
+                Span::styled(" ◆ ", Style::default().fg(SAPPHIRE)),
+                Span::styled("Inference Walkthrough", Style::default().fg(TEXT)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1)),
+    );
+    f.render_widget(intro, hero[0]);
+
+    let gauge = Gauge::default()
+        .block(
+            Block::default()
+                .title(Line::from(vec![
+                    Span::styled(" ◆ ", Style::default().fg(state_color)),
+                    Span::styled("Progress", Style::default().fg(TEXT)),
+                ]))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(SURFACE1)),
+        )
+        .gauge_style(Style::default().fg(SAPPHIRE).bg(SURFACE0))
+        .ratio(app.inference.progress_ratio.clamp(0.0, 1.0))
+        .label(Span::styled(
+            format!("{:.1}%", app.inference.progress_ratio * 100.0),
+            Style::default().fg(TEXT).bold(),
+        ));
+    f.render_widget(gauge, hero[1]);
+}
+
+fn draw_inference_catalog(f: &mut Frame, area: Rect, app: &App) {
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(11), Constraint::Min(8)])
+        .split(area);
+
+    let selected_demo = app.inference.selected_demo();
+    let selection = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("  Selected: ", Style::default().fg(OVERLAY)),
+            Span::styled(selected_demo.title(), Style::default().fg(TEXT).bold()),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("  {}", selected_demo.subtitle()),
+            Style::default().fg(SUBTEXT),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Best for: ", Style::default().fg(OVERLAY)),
+            Span::styled(selected_demo.process_notes()[0], Style::default().fg(TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Watch: ", Style::default().fg(OVERLAY)),
+            Span::styled(
+                selected_demo.monitoring_notes()[0],
+                Style::default().fg(TEXT),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Controls: ", Style::default().fg(OVERLAY)),
+            Span::styled("Enter/s run", Style::default().fg(LAVENDER)),
+            Span::styled("  r rerun", Style::default().fg(LAVENDER)),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .title(Line::from(vec![
+                Span::styled(" ◆ ", Style::default().fg(SAPPHIRE)),
+                Span::styled("Selection", Style::default().fg(TEXT)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1)),
+    );
+    f.render_widget(selection, sections[0]);
+
+    let items: Vec<ListItem> = InferenceDemoId::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, demo)| {
+            let selected = index == app.inference.selected_demo_index;
+            let title_style = if selected {
+                Style::default().fg(SAPPHIRE).bg(SURFACE0).bold()
+            } else {
+                Style::default().fg(TEXT)
+            };
+
+            ListItem::new(vec![
+                Line::from(vec![
+                    Span::styled(if selected { " ▸ " } else { "   " }, title_style),
+                    Span::styled(demo.title(), title_style),
+                    Span::styled(
+                        format!("  ({})", demo.estimated_duration()),
+                        Style::default().fg(OVERLAY),
+                    ),
+                ]),
+                Line::from(Span::styled(
+                    format!("   {}", demo.subtitle()),
+                    Style::default().fg(SUBTEXT),
+                )),
+            ])
+        })
+        .collect();
+
+    let demo_list = List::new(items).block(
+        Block::default()
+            .title(Line::from(vec![
+                Span::styled(" ◆ ", Style::default().fg(SAPPHIRE)),
+                Span::styled("Runnable Demos", Style::default().fg(TEXT)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1)),
+    );
+
+    f.render_widget(demo_list, sections[1]);
+}
+
+fn draw_inference_monitor(f: &mut Frame, area: Rect, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(6),
+            Constraint::Min(12),
+            Constraint::Length(9),
+        ])
+        .split(area);
+
+    let phase_color = match app.inference.state {
+        InferenceState::Idle => SUBTEXT,
+        InferenceState::Running => SAPPHIRE,
+        InferenceState::Complete => TEAL,
+        InferenceState::Failed => PINK,
+    };
+    let latest_preview = app
+        .inference
+        .last_sample_preview
+        .as_deref()
+        .unwrap_or("Waiting for the first encoded sample.");
+
+    let monitor = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("  Phase: ", Style::default().fg(OVERLAY)),
+            Span::styled(&app.inference.phase_title, Style::default().fg(TEXT).bold()),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Detail: ", Style::default().fg(OVERLAY)),
+            Span::styled(
+                &app.inference.phase_detail,
+                Style::default().fg(phase_color),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Latest: ", Style::default().fg(OVERLAY)),
+            Span::styled(latest_preview, Style::default().fg(TEXT)),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .title(Line::from(vec![
+                Span::styled(" ◆ ", Style::default().fg(phase_color)),
+                Span::styled("Live Monitor", Style::default().fg(TEXT)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1)),
+    );
+    f.render_widget(monitor, chunks[0]);
+
+    let chart_columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chunks[1]);
+    let left = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chart_columns[0]);
+    let right = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chart_columns[1]);
+
+    draw_metric_chart(
+        f,
+        left[0],
+        "Latency (ms)",
+        &app.inference.inference_times,
+        SAPPHIRE,
+    );
+    draw_metric_chart(
+        f,
+        left[1],
+        "Embed Mean",
+        &app.inference.embedding_means,
+        BLUE,
+    );
+    draw_metric_chart(
+        f,
+        right[0],
+        "Embed Std",
+        &app.inference.embedding_stds,
+        GREEN,
+    );
+    draw_metric_chart(
+        f,
+        right[1],
+        "Mean Token Norm",
+        &app.inference.mean_token_norms,
+        PEACH,
+    );
+
+    let result_lines: Vec<Line> = if app.inference.summary_lines.is_empty() {
+        app.inference
+            .selected_demo()
+            .monitoring_notes()
+            .iter()
+            .map(|line| {
+                Line::from(vec![
+                    Span::styled("  ◆ ", Style::default().fg(SAPPHIRE)),
+                    Span::styled(*line, Style::default().fg(TEXT)),
+                ])
+            })
+            .collect()
+    } else {
+        app.inference
+            .summary_lines
+            .iter()
+            .map(|line| {
+                Line::from(vec![
+                    Span::styled("  ◆ ", Style::default().fg(SAPPHIRE)),
+                    Span::styled(line, Style::default().fg(TEXT)),
+                ])
+            })
+            .collect()
+    };
+
+    let results = Paragraph::new(result_lines)
+        .wrap(Wrap { trim: false })
+        .block(
+            Block::default()
+                .title(Line::from(vec![
+                    Span::styled(" ◆ ", Style::default().fg(SAPPHIRE)),
+                    Span::styled("Result & Interpretation", Style::default().fg(TEXT)),
+                ]))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(SURFACE1)),
+        );
+
+    f.render_widget(results, chunks[2]);
+}
+
+fn draw_inference_log(f: &mut Frame, area: Rect, app: &App) {
+    let lines: Vec<Line> = if app.inference.logs.is_empty() {
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  ◆ ", Style::default().fg(SAPPHIRE)),
+                Span::styled(
+                    "Run a walkthrough to stream encoder init, sample inference, and output stats.",
+                    Style::default().fg(OVERLAY),
+                ),
+            ]),
+        ]
+    } else {
+        app.inference
+            .logs
+            .iter()
+            .map(|line| Line::from(Span::styled(line, Style::default().fg(TEXT))))
+            .collect()
+    };
+
+    let panel = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+        Block::default()
+            .title(Line::from(vec![
+                Span::styled(" ◆ ", Style::default().fg(SAPPHIRE)),
+                Span::styled("Execution Log", Style::default().fg(TEXT)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1)),
+    );
+
+    f.render_widget(panel, area);
+}
+
 fn draw_metric_chart(f: &mut Frame, area: Rect, title: &str, data: &[f64], color: Color) {
     if data.is_empty() {
         let placeholder = Paragraph::new(vec![
@@ -1102,7 +1501,7 @@ fn draw_about(f: &mut Frame, area: Rect, _app: &App) {
         Line::from(vec![
             Span::styled("                  ", Style::default().fg(LAVENDER)),
             Span::styled(
-                "interactive TUI dashboard with 5 tabs",
+                "interactive TUI dashboard with 6 tabs",
                 Style::default().fg(SUBTEXT),
             ),
         ]),
@@ -1174,7 +1573,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  1-5      ", Style::default().fg(LAVENDER).bold()),
+            Span::styled("  1-6      ", Style::default().fg(LAVENDER).bold()),
             Span::styled("Switch tabs", Style::default().fg(TEXT)),
         ]),
         Line::from(vec![
@@ -1187,7 +1586,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("  j/k ↑/↓  ", Style::default().fg(LAVENDER).bold()),
-            Span::styled("Navigate models and demos", Style::default().fg(TEXT)),
+            Span::styled("Navigate models and demo lists", Style::default().fg(TEXT)),
         ]),
         Line::from(vec![
             Span::styled("  s/Enter  ", Style::default().fg(LAVENDER).bold()),

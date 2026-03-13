@@ -116,6 +116,95 @@ impl DemoId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InferenceDemoId {
+    PatternVitSmall,
+    PatternVitBase,
+}
+
+impl InferenceDemoId {
+    pub const ALL: [InferenceDemoId; 2] = [
+        InferenceDemoId::PatternVitSmall,
+        InferenceDemoId::PatternVitBase,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::PatternVitSmall => "Pattern Walkthrough",
+            Self::PatternVitBase => "Pattern Walkthrough XL",
+        }
+    }
+
+    pub fn subtitle(self) -> &'static str {
+        match self {
+            Self::PatternVitSmall => "ViT-S/16 inference over deterministic demo image patterns",
+            Self::PatternVitBase => {
+                "ViT-B/16 inference over the same patterns to compare scale and cost"
+            }
+        }
+    }
+
+    pub fn estimated_duration(self) -> &'static str {
+        match self {
+            Self::PatternVitSmall => "~1-2s on CPU",
+            Self::PatternVitBase => "~2-4s on CPU",
+        }
+    }
+
+    pub fn preset(self) -> ArchPreset {
+        match self {
+            Self::PatternVitSmall => ArchPreset::VitSmall16,
+            Self::PatternVitBase => ArchPreset::VitBase16,
+        }
+    }
+
+    pub fn input_size(self) -> (usize, usize) {
+        (224, 224)
+    }
+
+    pub fn sample_count(self) -> usize {
+        3
+    }
+
+    pub fn process_notes(self) -> &'static [&'static str] {
+        match self {
+            Self::PatternVitSmall => &[
+                "Builds a random-initialized ViT-S/16 encoder in demo mode.",
+                "Synthesizes three deterministic image patterns used throughout the demos.",
+                "Runs real tokenization and encoder attention, then inspects the embedding output.",
+            ],
+            Self::PatternVitBase => &[
+                "Uses the same deterministic inputs with a larger ViT-B/16 encoder.",
+                "Highlights how patch count stays fixed while latency and representation scale change.",
+                "Good for comparing runtime cost against the smaller demo.",
+            ],
+        }
+    }
+
+    pub fn monitoring_notes(self) -> &'static [&'static str] {
+        match self {
+            Self::PatternVitSmall => &[
+                "Watch the phase panel move from encoder init to per-sample inference.",
+                "Latency, activation mean/std, and token norms update after each sample.",
+                "The result panel explains what the embedding stats mean and what they do not.",
+            ],
+            Self::PatternVitBase => &[
+                "Compare runtime and token-norm drift against the smaller pattern walkthrough.",
+                "Use the sample previews to verify the same inputs flowed through both presets.",
+                "This is a structure-and-monitoring demo, not a pretrained semantic benchmark.",
+            ],
+        }
+    }
+
+    pub fn engine_note(self) -> &'static str {
+        match self {
+            Self::PatternVitSmall | Self::PatternVitBase => {
+                "Demo mode with random-initialized weights"
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PreparedDemoDataset {
     pub root: PathBuf,
@@ -171,6 +260,13 @@ pub fn prepare_demo_image_folder() -> Result<PreparedDemoDataset> {
     }
 
     Ok(PreparedDemoDataset { root, files })
+}
+
+pub(crate) fn demo_pattern_images() -> Vec<(String, RgbImage)> {
+    DEMO_IMAGES
+        .iter()
+        .map(|(relative_path, pixel_fn)| (relative_path.to_string(), render_demo_image(*pixel_fn)))
+        .collect()
 }
 
 pub fn synthetic_demo_args() -> TrainArgs {

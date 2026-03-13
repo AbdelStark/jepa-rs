@@ -70,7 +70,7 @@ Safetensors support is functional. ONNX metadata inspection and initializer load
 Owns the user-facing binary:
 
 - CLI with 6 subcommands: `models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`
-- interactive TUI dashboard with 5 tabs (Dashboard, Models, Training, Checkpoint, About)
+- interactive TUI dashboard with 6 tabs (Dashboard, Models, Training, Inference, Checkpoint, About)
 - built on `clap` (CLI) and `ratatui`/`crossterm` (TUI)
 
 This crate depends on all library crates but no library crate depends on it.

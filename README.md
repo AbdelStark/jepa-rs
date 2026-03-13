@@ -151,6 +151,12 @@ runner. Launch `jepa`, switch to tab `3`, choose a demo with `j/k`, and press
 `Enter` to run it. The panel streams real run logs, step metrics, loss/energy
 charts, and a short interpretation of what happened.
 
+The TUI `Inference` tab on `4` adds a separate guided walkthrough for encoder
+inference. It runs deterministic demo image patterns through a preset ViT,
+streams phase changes, per-sample latency and embedding statistics, and explains
+what the representation telemetry means. The walkthrough is intentionally a
+pipeline demo rather than a pretrained semantic benchmark.
+
 If you want to run the CLI directly after generating the demo dataset:
 
 ```bash
@@ -353,7 +359,7 @@ cargo bench --workspace --no-run
 
 - Complete I-JEPA and V-JEPA architectures with strict masked-encoder paths
 - CLI with 6 commands (`models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`)
-- Interactive TUI dashboard with 5 tabs (Dashboard, Models, Training, Checkpoint, About)
+- Interactive TUI dashboard with 6 tabs (Dashboard, Models, Training, Inference, Checkpoint, About)
 - SafeTensors checkpoint loading with automatic key remapping
 - ONNX metadata inspection and initializer loading
 - Pretrained model registry with download URLs
