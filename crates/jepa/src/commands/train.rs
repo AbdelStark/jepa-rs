@@ -1241,4 +1241,171 @@ mod tests {
         std::fs::create_dir_all(&path).expect("temporary test directory should be created");
         path
     }
+
+    #[test]
+    fn is_supported_image_file_accepts_common_extensions() {
+        assert!(is_supported_image_file(Path::new("photo.jpg")));
+        assert!(is_supported_image_file(Path::new("photo.jpeg")));
+        assert!(is_supported_image_file(Path::new("photo.png")));
+        assert!(is_supported_image_file(Path::new("photo.webp")));
+    }
+
+    #[test]
+    fn is_supported_image_file_rejects_non_image() {
+        assert!(!is_supported_image_file(Path::new("data.txt")));
+        assert!(!is_supported_image_file(Path::new("model.onnx")));
+        assert!(!is_supported_image_file(Path::new("no_extension")));
+    }
+
+    #[test]
+    fn is_supported_image_file_case_insensitive() {
+        assert!(is_supported_image_file(Path::new("photo.PNG")));
+        assert!(is_supported_image_file(Path::new("photo.Jpg")));
+    }
+
+    #[test]
+    fn scaled_dimension_preserves_aspect_ratio() {
+        // 200x100 image, target shorter side = 50
+        // width should scale to 100
+        assert_eq!(scaled_dimension(200, 50, 100), 100);
+    }
+
+    #[test]
+    fn scaled_dimension_minimum_is_one() {
+        assert_eq!(scaled_dimension(1, 1, 1000), 1);
+    }
+
+    #[test]
+    fn scaled_dimension_square() {
+        assert_eq!(scaled_dimension(100, 50, 100), 50);
+    }
+
+    #[test]
+    fn default_mean_rgb() {
+        let mean = default_mean(3);
+        assert_eq!(mean.len(), 3);
+        assert!((mean[0] - 0.485).abs() < 1e-6);
+    }
+
+    #[test]
+    fn default_mean_grayscale() {
+        let mean = default_mean(1);
+        assert_eq!(mean, vec![0.5]);
+    }
+
+    #[test]
+    fn default_mean_other_channels() {
+        let mean = default_mean(5);
+        assert_eq!(mean, vec![0.0; 5]);
+    }
+
+    #[test]
+    fn default_std_rgb() {
+        let std_vals = default_std(3);
+        assert_eq!(std_vals.len(), 3);
+        assert!((std_vals[0] - 0.229).abs() < 1e-6);
+    }
+
+    #[test]
+    fn default_std_grayscale() {
+        assert_eq!(default_std(1), vec![0.5]);
+    }
+
+    #[test]
+    fn default_std_other_channels() {
+        assert_eq!(default_std(5), vec![1.0; 5]);
+    }
+
+    #[test]
+    fn parse_csv_f32_valid() {
+        let result = parse_csv_f32("0.485, 0.456, 0.406", "mean").unwrap();
+        assert_eq!(result.len(), 3);
+        assert!((result[0] - 0.485).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_csv_f32_single_value() {
+        let result = parse_csv_f32("0.5", "mean").unwrap();
+        assert_eq!(result, vec![0.5]);
+    }
+
+    #[test]
+    fn parse_csv_f32_rejects_empty_value() {
+        let result = parse_csv_f32("0.5,,0.3", "mean");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_csv_f32_rejects_non_numeric() {
+        let result = parse_csv_f32("0.5,abc,0.3", "mean");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn maybe_shuffle_noop_when_false() {
+        let mut order = vec![0, 1, 2, 3, 4];
+        maybe_shuffle(&mut order, false);
+        assert_eq!(order, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn resize_shorter_side_scales_correctly() {
+        let img = RgbImage::new(200, 100);
+        let resized = resize_shorter_side(&img, 50);
+        assert_eq!(resized.height(), 50);
+        assert_eq!(resized.width(), 100);
+    }
+
+    #[test]
+    fn resize_shorter_side_landscape() {
+        let img = RgbImage::new(100, 200);
+        let resized = resize_shorter_side(&img, 50);
+        assert_eq!(resized.width(), 50);
+        assert_eq!(resized.height(), 100);
+    }
+
+    #[test]
+    fn resize_shorter_side_square() {
+        let img = RgbImage::new(100, 100);
+        let resized = resize_shorter_side(&img, 50);
+        assert_eq!(resized.width(), 50);
+        assert_eq!(resized.height(), 50);
+    }
+
+    #[test]
+    fn rgb_image_to_chw_layout_is_channel_first() {
+        let mut img = RgbImage::new(2, 2);
+        img.put_pixel(0, 0, image::Rgb([255, 0, 0]));
+        img.put_pixel(1, 0, image::Rgb([0, 255, 0]));
+        img.put_pixel(0, 1, image::Rgb([0, 0, 255]));
+        img.put_pixel(1, 1, image::Rgb([128, 128, 128]));
+
+        let norm = NormalizationStats {
+            mean: vec![0.0, 0.0, 0.0],
+            std: vec![1.0, 1.0, 1.0],
+        };
+        let data = rgb_image_to_chw(&img, &norm);
+        assert_eq!(data.len(), 3 * 2 * 2);
+        // Red channel at (0,0) should be 1.0
+        assert!((data[0] - 1.0).abs() < 1e-6);
+        // Green channel at (1,0) should be 1.0 (offset: 1*4 + 0*2 + 1 = 5)
+        assert!((data[5] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn collect_image_files_finds_nested_images() {
+        let root = make_temp_dir("collect-images");
+        let nested = root.join("sub");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let img = GrayImage::new(1, 1);
+        img.save(root.join("a.png")).unwrap();
+        img.save(nested.join("b.jpg")).unwrap();
+        std::fs::write(root.join("c.txt"), "not an image").unwrap();
+
+        let files = collect_image_files(&root).unwrap();
+        assert_eq!(files.len(), 2);
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 }

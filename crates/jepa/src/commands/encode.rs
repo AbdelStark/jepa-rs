@@ -530,7 +530,7 @@ fn load_encoder_checkpoint(path: &std::path::Path) -> Result<Checkpoint> {
 
 #[cfg(test)]
 mod tests {
-    use super::embedding_summary;
+    use super::*;
 
     #[test]
     fn embedding_summary_reports_mean_std_and_token_norm() {
@@ -550,5 +550,66 @@ mod tests {
     fn embedding_summary_handles_empty_inputs() {
         let (mean, std, norm) = embedding_summary(&[], 0);
         assert_eq!((mean, std, norm), (0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn embedding_summary_single_token() {
+        let values = [3.0, 4.0];
+        let (mean, _std, norm) = embedding_summary(&values, 2);
+        assert!((mean - 3.5).abs() < 1e-9);
+        assert!((norm - 5.0).abs() < 1e-9); // sqrt(9 + 16) = 5
+    }
+
+    #[test]
+    fn format_demo_sample_label_formats_correctly() {
+        let label = format_demo_sample_label(0, "class_a/gradient_h.png");
+        assert_eq!(label, "01 gradient-h");
+    }
+
+    #[test]
+    fn format_demo_sample_label_plain_name() {
+        let label = format_demo_sample_label(2, "simple.png");
+        assert_eq!(label, "03 simple");
+    }
+
+    #[test]
+    fn vit_config_for_preset_all_variants() {
+        let configs = [
+            (ArchPreset::VitSmall16, 384),
+            (ArchPreset::VitBase16, 768),
+            (ArchPreset::VitLarge16, 1024),
+            (ArchPreset::VitHuge14, 1280),
+        ];
+        for (preset, expected_dim) in configs {
+            let config = vit_config_for_preset(&preset);
+            assert_eq!(config.embed_dim, expected_dim, "preset {:?}", preset);
+        }
+    }
+
+    #[test]
+    fn build_demo_inputs_creates_requested_count() {
+        let inputs = build_demo_inputs(32, 32, 2).unwrap();
+        assert_eq!(inputs.len(), 2);
+        for input in &inputs {
+            assert!(!input.label.is_empty());
+            assert_eq!(input.tensor.dims(), [1, 3, 32, 32]);
+        }
+    }
+
+    #[test]
+    fn rgb_image_to_chw_normalized_output() {
+        let img = image::RgbImage::from_pixel(1, 1, image::Rgb([128, 128, 128]));
+        let data = rgb_image_to_chw(&img);
+        assert_eq!(data.len(), 3);
+        // (128/255 - mean) / std for each channel
+        let mean = [0.485f32, 0.456, 0.406];
+        let std_vals = [0.229f32, 0.224, 0.225];
+        for (i, &value) in data.iter().enumerate() {
+            let expected = (128.0f32 / 255.0 - mean[i]) / std_vals[i];
+            assert!(
+                (value - expected).abs() < 1e-5,
+                "channel {i}: expected {expected}, got {value}"
+            );
+        }
     }
 }

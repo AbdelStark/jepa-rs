@@ -76,3 +76,38 @@ pub fn run(args: ModelsArgs) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_lists_all_models() {
+        let args = ModelsArgs {
+            family: None,
+            name: None,
+        };
+        let result = run(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn run_filters_ijepa() {
+        let args = ModelsArgs {
+            family: Some(ModelFamilyFilter::Ijepa),
+            name: None,
+        };
+        let result = run(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn run_filters_vjepa() {
+        let args = ModelsArgs {
+            family: Some(ModelFamilyFilter::Vjepa),
+            name: None,
+        };
+        let result = run(args);
+        assert!(result.is_ok());
+    }
+}

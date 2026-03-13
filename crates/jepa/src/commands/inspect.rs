@@ -155,3 +155,74 @@ fn format_params(count: usize) -> String {
         format!("{count} params")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn truncate_path_short() {
+        let p = Path::new("/tmp/foo.onnx");
+        let result = truncate_path(p, 50);
+        assert_eq!(result, "/tmp/foo.onnx");
+    }
+
+    #[test]
+    fn truncate_path_long() {
+        let p = Path::new(
+            "/very/long/path/that/exceeds/the/maximum/allowed/characters/model.safetensors",
+        );
+        let result = truncate_path(p, 20);
+        assert!(result.ends_with("..."));
+        assert_eq!(result.len(), 20);
+    }
+
+    #[test]
+    fn format_shape_usize_basic() {
+        assert_eq!(format_shape(&[3, 224, 224]), "[3, 224, 224]");
+        assert_eq!(format_shape(&[768]), "[768]");
+        assert_eq!(format_shape(&[]), "[]");
+    }
+
+    #[test]
+    fn format_shape_i64_basic() {
+        assert_eq!(format_shape_i64(&[1, 3, 224, 224]), "[1, 3, 224, 224]");
+        assert_eq!(format_shape_i64(&[-1, 768]), "[-1, 768]");
+    }
+
+    #[test]
+    fn format_params_billions() {
+        let result = format_params(1_500_000_000);
+        assert!(result.starts_with("1.50B"));
+        assert!(result.contains("1500000000 params"));
+    }
+
+    #[test]
+    fn format_params_millions() {
+        let result = format_params(86_000_000);
+        assert!(result.starts_with("86.0M"));
+    }
+
+    #[test]
+    fn format_params_thousands() {
+        let result = format_params(50_000);
+        assert!(result.starts_with("50.0K"));
+    }
+
+    #[test]
+    fn format_params_small() {
+        assert_eq!(format_params(42), "42 params");
+    }
+
+    #[test]
+    fn run_rejects_unknown_extension() {
+        let args = InspectArgs {
+            path: PathBuf::from("/tmp/model.bin"),
+        };
+        let result = run(args);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Unknown file extension"));
+    }
+}

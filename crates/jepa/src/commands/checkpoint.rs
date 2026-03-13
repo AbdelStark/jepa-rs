@@ -127,3 +127,48 @@ fn format_bytes(bytes: usize) -> String {
         format!("{bytes} B")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_shape_empty() {
+        assert_eq!(format_shape(&[]), "[]");
+    }
+
+    #[test]
+    fn format_shape_single_dim() {
+        assert_eq!(format_shape(&[768]), "[768]");
+    }
+
+    #[test]
+    fn format_shape_multi_dim() {
+        assert_eq!(format_shape(&[3, 224, 224]), "[3,224,224]");
+    }
+
+    #[test]
+    fn format_bytes_small() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn format_bytes_kilobytes() {
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(1536), "1.5 KB");
+    }
+
+    #[test]
+    fn format_bytes_megabytes() {
+        assert_eq!(format_bytes(1_048_576), "1.0 MB");
+        assert_eq!(format_bytes(5_242_880), "5.0 MB");
+    }
+
+    #[test]
+    fn format_bytes_gigabytes() {
+        assert_eq!(format_bytes(1_073_741_824), "1.00 GB");
+        assert_eq!(format_bytes(2_684_354_560), "2.50 GB");
+    }
+}

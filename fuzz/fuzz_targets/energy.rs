@@ -42,5 +42,5 @@ fuzz_target!(|data: &[u8]| {
 
     let _ = L2Energy.compute(&a, &b);
     let _ = CosineEnergy.compute(&a, &b);
-    let _ = SmoothL1Energy::default().compute(&a, &b);
+    let _ = SmoothL1Energy::new(1.0).compute(&a, &b);
 });
