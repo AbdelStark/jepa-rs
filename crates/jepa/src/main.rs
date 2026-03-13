@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod fmt_utils;
 mod tui;
 
 use anyhow::Result;

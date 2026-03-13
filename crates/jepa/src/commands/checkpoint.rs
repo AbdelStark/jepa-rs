@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::cli::{CheckpointArgs, KeymapPreset};
+use crate::fmt_utils::{format_params, truncate};
 
 pub fn run(args: CheckpointArgs) -> Result<()> {
     let mappings = match args.keymap {
@@ -45,7 +46,7 @@ pub fn run(args: CheckpointArgs) -> Result<()> {
                     "  ║ {:<34} {:<12} {:>10} ║",
                     truncate(key, 34),
                     shape_str,
-                    format_number(numel),
+                    format_params(numel),
                 );
             }
         }
@@ -79,7 +80,7 @@ pub fn run(args: CheckpointArgs) -> Result<()> {
                 "  ║ {:<34} {:<10} {:>12} ║",
                 truncate(group, 34),
                 count,
-                format_number(*params),
+                format_params(*params),
             );
         }
     }
@@ -87,7 +88,7 @@ pub fn run(args: CheckpointArgs) -> Result<()> {
     println!("  ╠══════════════════════════════════════════════════════════════╣");
     println!(
         "  ║  Total parameters:  {:<39} ║",
-        format_number(total_params)
+        format_params(total_params)
     );
     println!(
         "  ║  Estimated size:    {:<39} ║",
@@ -110,29 +111,9 @@ pub fn run(args: CheckpointArgs) -> Result<()> {
     Ok(())
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max - 3])
-    }
-}
-
 fn format_shape(shape: &[usize]) -> String {
     let parts: Vec<String> = shape.iter().map(|d| d.to_string()).collect();
     format!("[{}]", parts.join(","))
-}
-
-fn format_number(n: usize) -> String {
-    if n >= 1_000_000_000 {
-        format!("{:.2}B", n as f64 / 1e9)
-    } else if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1e6)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1e3)
-    } else {
-        format!("{n}")
-    }
 }
 
 fn format_bytes(bytes: usize) -> String {
