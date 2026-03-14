@@ -17,6 +17,10 @@ pub fn run(args: ModelsArgs) -> Result<()> {
             .into_iter()
             .filter(|m| matches!(m.family, ModelFamily::VJepa))
             .collect(),
+        Some(ModelFamilyFilter::Cjepa) => all_models
+            .into_iter()
+            .filter(|m| matches!(m.family, ModelFamily::CJepa))
+            .collect(),
         None => all_models,
     };
 
@@ -105,6 +109,16 @@ mod tests {
     fn run_filters_vjepa() {
         let args = ModelsArgs {
             family: Some(ModelFamilyFilter::Vjepa),
+            name: None,
+        };
+        let result = run(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn run_filters_cjepa() {
+        let args = ModelsArgs {
+            family: Some(ModelFamilyFilter::Cjepa),
             name: None,
         };
         let result = run(args);

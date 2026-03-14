@@ -1,6 +1,6 @@
 # Causal-JEPA (C-JEPA) — Feature Specification
 
-> **Status**: Research / Design
+> **Status**: Implemented (all 5 phases)
 > **Date**: 2026-03-14
 > **Paper**: [Causal-JEPA: Learning World Models through Object-Level Latent Interventions](https://arxiv.org/abs/2602.11389)
 > **Authors**: Nam, Le Lidec, Maes, LeCun, Balestriero (2025)

@@ -25,6 +25,7 @@
 //! | [`vit`] | [`VitEncoder`](vit::VitEncoder) — image ViT with configurable presets (Tiny → giant) | |
 //! | [`image`] | [`TransformerPredictor`](image::TransformerPredictor), [`IJepa`](image::IJepa) — I-JEPA pipeline with `forward_step_strict` | Assran et al. (2023) |
 //! | [`video`] | [`VitVideoEncoder`](video::VitVideoEncoder), [`VJepa`](video::VJepa) — V-JEPA with 3D tubelets + 3D RoPE | Bardes et al. (2024) |
+//! | [`slot_attention`] | [`SlotAttention`](slot_attention::SlotAttention), [`SlotEncoder`](slot_attention::SlotEncoder) — object-centric encoding for C-JEPA | Locatello (2020), Nam (2025) |
 //!
 //! ## Quick start
 //!
@@ -44,6 +45,7 @@
 pub mod image;
 pub mod patch;
 pub mod rope;
+pub mod slot_attention;
 pub(crate) mod token_ops;
 pub mod video;
 pub mod vit;

@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added in-repo planning docs for production gaps, milestone roadmap, and implementation work packages
 
 ### Added
+- **jepa-core**: `ObjectMasking` strategy for masking whole object slots instead of spatial patches (C-JEPA support)
+- **jepa-vision**: `SlotAttention<B>` module with GRU-based iterative slot refinement and `SlotEncoder<B>` composing a frozen ViT backbone with slot attention
+- **jepa-train**: `CausalJepaComponents` training loop for C-JEPA — frozen encoder, object-level masking with identity anchoring, joint history + future MSE loss
+- **jepa-world**: `ObjectDynamicsPredictor<B>` transformer-based dynamics predictor for CEM planning in object-representation space
+- **jepa-compat**: `CJepa` variant in `ModelFamily` registry enum
+- **jepa**: `--masking object` CLI flag and `--family cjepa` model filter for C-JEPA workflows
 - **jepa**: CLI binary with 6 subcommands (`models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`)
 - **jepa**: Interactive TUI dashboard with 5 tabs (Dashboard, Models, Training, Checkpoint, About) using ratatui and Catppuccin Mocha theme
 - **jepa-vision**: Strict masked image and video forward paths with no-leakage regression coverage

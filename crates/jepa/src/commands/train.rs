@@ -13,7 +13,7 @@ use rand::seq::SliceRandom;
 
 use jepa_core::{
     BarlowTwins, BlockMasking, CollapseRegularizer, CosineEnergy, Ema, EnergyFn, InputShape,
-    L2Energy, MaskingStrategy, MultiBlockMasking, SmoothL1Energy, VICReg,
+    L2Energy, MaskingStrategy, MultiBlockMasking, ObjectMasking, SmoothL1Energy, VICReg,
 };
 use jepa_train::{LrSchedule, WarmupCosineSchedule};
 use jepa_vision::image::{IJepa, IJepaConfig, TransformerPredictorConfig};
@@ -201,6 +201,10 @@ where
         mask_ratio: 0.4,
         num_blocks: 4,
     };
+    let object_masking = ObjectMasking {
+        num_slots: 7,
+        mask_range: (1, 4),
+    };
 
     model = match (&args.energy, &args.regularizer) {
         (EnergyChoice::L2, RegularizerChoice::Vicreg) => run_loop(
@@ -213,6 +217,7 @@ where
             &args.masking,
             &block_masking,
             &multi_block_masking,
+            &object_masking,
             &mask_shape,
             &mut batch_source,
             reporter,
@@ -227,6 +232,7 @@ where
             &args.masking,
             &block_masking,
             &multi_block_masking,
+            &object_masking,
             &mask_shape,
             &mut batch_source,
             reporter,
@@ -241,6 +247,7 @@ where
             &args.masking,
             &block_masking,
             &multi_block_masking,
+            &object_masking,
             &mask_shape,
             &mut batch_source,
             reporter,
@@ -255,6 +262,7 @@ where
             &args.masking,
             &block_masking,
             &multi_block_masking,
+            &object_masking,
             &mask_shape,
             &mut batch_source,
             reporter,
@@ -269,6 +277,7 @@ where
             &args.masking,
             &block_masking,
             &multi_block_masking,
+            &object_masking,
             &mask_shape,
             &mut batch_source,
             reporter,
@@ -283,6 +292,7 @@ where
             &args.masking,
             &block_masking,
             &multi_block_masking,
+            &object_masking,
             &mask_shape,
             &mut batch_source,
             reporter,
@@ -315,6 +325,7 @@ fn run_loop<EF, CR, O>(
     masking_choice: &MaskingChoice,
     block_masking: &BlockMasking,
     multi_block_masking: &MultiBlockMasking,
+    object_masking: &ObjectMasking,
     input_shape: &InputShape,
     batch_source: &mut BatchSource,
     reporter: &mut impl TrainReporter,
@@ -340,6 +351,10 @@ where
             }
             MaskingChoice::MultiBlock => {
                 let mask = multi_block_masking.generate_mask(input_shape, &mut rng);
+                model.try_forward_step_strict(&input, mask, energy_fn, regularizer, args.reg_weight)
+            }
+            MaskingChoice::Object => {
+                let mask = object_masking.generate_mask(input_shape, &mut rng);
                 model.try_forward_step_strict(&input, mask, energy_fn, regularizer, args.reg_weight)
             }
         }

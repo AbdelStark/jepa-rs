@@ -48,6 +48,7 @@ pub struct ModelsArgs {
 pub enum ModelFamilyFilter {
     Ijepa,
     Vjepa,
+    Cjepa,
 }
 
 #[derive(Parser)]
@@ -186,6 +187,7 @@ pub enum ArchPreset {
 pub enum MaskingChoice {
     Block,
     MultiBlock,
+    Object,
 }
 
 #[derive(Clone, Debug, ValueEnum)]

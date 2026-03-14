@@ -25,11 +25,15 @@
 //! ([`IJepa::forward_step_strict`](../jepa_vision/image/struct.IJepa.html#method.forward_step_strict),
 //! [`VJepa::forward_step_strict`](../jepa_vision/video/struct.VJepa.html#method.forward_step_strict)).
 
+pub mod causal;
 pub mod checkpoint;
 pub mod schedule;
 pub mod step;
 pub mod trainer;
 
+pub use causal::{
+    CausalJepaComponents, CausalJepaConfig, CausalJepaError, CausalJepaForwardOutput,
+};
 pub use checkpoint::CheckpointMeta;
 pub use schedule::{ConstantSchedule, LrSchedule, WarmupCosineSchedule};
 pub use step::{TrainConfig, TrainMetrics, TrainStepOutput};

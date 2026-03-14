@@ -41,7 +41,7 @@
 //! | [`encoder`] | [`Encoder`] trait — maps raw inputs to [`Representation`]s |
 //! | [`predictor`] | [`Predictor`] trait — predicts target representations from context |
 //! | [`energy`] | [`EnergyFn`] trait and impls ([`L2Energy`], [`CosineEnergy`], [`SmoothL1Energy`]) |
-//! | [`masking`] | [`MaskingStrategy`] trait and impls ([`BlockMasking`], [`SpatiotemporalMasking`], [`MultiBlockMasking`]) |
+//! | [`masking`] | [`MaskingStrategy`] trait and impls ([`BlockMasking`], [`SpatiotemporalMasking`], [`MultiBlockMasking`], [`ObjectMasking`]) |
 //! | [`collapse`] | [`CollapseRegularizer`] trait and impls ([`VICReg`], [`BarlowTwins`]) |
 //! | [`ema`] | [`Ema`] — exponential moving average updater with optional cosine schedule |
 //! | [`types`] | Semantic tensor wrappers: [`Representation`], [`Energy`], [`MaskSpec`], [`InputShape`] |
@@ -111,4 +111,4 @@ pub use config::{ConfigError, JepaConfig, JepaConfigBuilder};
 pub use collapse::{BarlowTwins, VICReg};
 pub use ema::{CosineMomentumSchedule, Ema};
 pub use energy::{CosineEnergy, L2Energy, SmoothL1Energy};
-pub use masking::{BlockMasking, MultiBlockMasking, SpatiotemporalMasking};
+pub use masking::{BlockMasking, MultiBlockMasking, ObjectMasking, SpatiotemporalMasking};

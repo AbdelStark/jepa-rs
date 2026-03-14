@@ -15,7 +15,7 @@
 
 Alpha Rust implementation of **JEPA** (Joint Embedding Predictive Architecture) — the self-supervised learning framework from [Yann LeCun and Meta AI](https://openreview.net/pdf?id=BZ5a1r-kVsf) for learning world models that predict in representation space rather than pixel space.
 
-**jepa-rs** provides modular, backend-agnostic building blocks for I-JEPA (images), V-JEPA (video), and hierarchical world models, built on top of the [burn](https://burn.dev) deep learning framework. It includes a CLI and interactive TUI dashboard, safetensors checkpoint loading, ONNX metadata inspection, and a pretrained model registry for Facebook Research models.
+**jepa-rs** provides modular, backend-agnostic building blocks for I-JEPA (images), V-JEPA (video), C-JEPA (causal object-centric), and hierarchical world models, built on top of the [burn](https://burn.dev) deep learning framework. It includes a CLI and interactive TUI dashboard, safetensors checkpoint loading, ONNX metadata inspection, and a pretrained model registry for Facebook Research models.
 
 ```
                     ┌──────────────┐
@@ -259,7 +259,7 @@ jepa-rs/
 │   ├── Encoder          Trait for context/target encoders
 │   ├── Predictor        Trait for latent predictors
 │   ├── EnergyFn         L2, Cosine, SmoothL1 energy functions
-│   ├── MaskingStrategy  Block, MultiBlock, Spatiotemporal masking
+│   ├── MaskingStrategy  Block, MultiBlock, Spatiotemporal, Object masking
 │   ├── CollapseReg      VICReg, BarlowTwins collapse prevention
 │   └── EMA              Exponential moving average with cosine schedule
 │
@@ -267,10 +267,12 @@ jepa-rs/
 │   ├── VitEncoder       ViT-S/B/L/H/G with 2D RoPE
 │   ├── IJepa            I-JEPA pipeline (image)
 │   ├── VJepa            V-JEPA pipeline (video, 3D tubelets)
+│   ├── SlotAttention    Slot attention encoder for object-centric representations
 │   └── Predictor        Transformer-based cross-attention predictor
 │
 ├── jepa-world       World models and planning
 │   ├── ActionPredictor  Action-conditioned latent prediction
+│   ├── ObjectDynamics   Transformer dynamics predictor for object slots
 │   ├── Planner          Random shooting planner with cost functions
 │   ├── HierarchicalJepa Multi-level H-JEPA
 │   └── ShortTermMemory  Sliding-window memory for temporal context
@@ -278,6 +280,7 @@ jepa-rs/
 ├── jepa-train       Training orchestration
 │   ├── TrainConfig      Learning rate schedules, EMA config
 │   ├── JepaComponents   Generic forward step orchestration
+│   ├── CausalJepa       C-JEPA training loop (frozen encoder, object masking)
 │   └── CheckpointMeta   Save/resume metadata
 │
 ├── jepa-compat      Model compatibility and interop
@@ -360,14 +363,14 @@ cargo bench --workspace --no-run
 
 ### What works
 
-- Complete I-JEPA and V-JEPA architectures with strict masked-encoder paths
+- Complete I-JEPA, V-JEPA, and C-JEPA architectures with strict masked-encoder paths
 - CLI with 6 commands (`models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`)
 - Interactive TUI dashboard with 6 tabs (Dashboard, Models, Training, Inference, Checkpoint, About)
 - SafeTensors checkpoint loading with automatic key remapping
 - ONNX metadata inspection and initializer loading
 - Pretrained model registry with download URLs
 - Differential parity tests against 3 checked-in strict image fixtures
-- Comprehensive test suite (365 tests), property-based testing, fuzz targets
+- Comprehensive test suite (500+ tests), property-based testing, fuzz targets
 - All standard ViT configs: ViT-S/16, ViT-B/16, ViT-L/16, ViT-H/14, ViT-H/16, ViT-G/16
 
 ### Known limitations
@@ -432,6 +435,18 @@ The JEPA family has grown across several papers. Here is exactly what jepa-rs im
 | **jepa-rs structs** | `Action<B>`, `ActionConditionedPredictor<B>` trait, `RandomShootingPlanner` in `jepa-world` ([`crates/jepa-world/src/action.rs`](crates/jepa-world/src/action.rs), [`crates/jepa-world/src/planner.rs`](crates/jepa-world/src/planner.rs)) |
 | **What it does** | Predicts next-state representations given current state + action. Supports random-shooting (CEM) planning. This is **experimental**. |
 
+### C-JEPA (Causal)
+
+| | |
+|---|---|
+| **Paper** | [Causal-JEPA: Learning World Models through Object-Level Latent Interventions](https://arxiv.org/abs/2602.11389) (Nam et al., 2025) |
+| **Reference code** | [`galilai-group/cjepa`](https://github.com/galilai-group/cjepa) |
+| **jepa-rs structs** | `ObjectMasking` in `jepa-core`, `SlotAttention<B>` / `SlotEncoder<B>` in `jepa-vision`, `CausalJepaComponents` in `jepa-train`, `ObjectDynamicsPredictor<B>` in `jepa-world` |
+| **What it does** | Object-centric JEPA: masks whole objects (not patches), uses a frozen encoder with slot attention, identity-anchored masked tokens, and joint history + future MSE loss. Enables causal reasoning and efficient CEM planning in object-representation space (~98% token reduction vs patch-based models). |
+| **Masking** | `ObjectMasking` — randomly partitions N object slots into context/target subsets. |
+| **Training** | Frozen encoder (no EMA), only slot attention and predictor are trained. `CausalJepaComponents::forward_step` in `jepa-train`. |
+| **Planning** | `ObjectDynamicsPredictor` + `RandomShootingPlanner` in `jepa-world` for CEM-based MPC in object space. |
+
 ### What about EB-JEPA?
 
 [EB-JEPA](https://arxiv.org/abs/2602.03604) (Terver et al., 2026) is a separate lightweight Python library for energy-based JEPA. jepa-rs is **not** an implementation of EB-JEPA. We reference it for comparison only. The energy functions in `jepa-core` (L2, Cosine, SmoothL1) are standard loss formulations, not the EB-JEPA energy framework.
@@ -444,6 +459,7 @@ The JEPA family has grown across several papers. Here is exactly what jepa-rs im
 | V-JEPA | Bardes et al. 2024 | `VJepa<B>` | Strict path implemented, parity pending |
 | V-JEPA 2 | Bardes et al. 2025 | `VJepa<B>` + cosine EMA schedule | Select features only |
 | H-JEPA | LeCun 2022 (position paper) | `HierarchicalJepa<B>` | Experimental, no reference impl |
+| C-JEPA | Nam et al. 2025 | `ObjectMasking`, `SlotAttention`, `CausalJepaComponents`, `ObjectDynamicsPredictor` | Core support implemented |
 | World model | LeCun 2022 + V-JEPA 2 | `ActionConditionedPredictor`, `RandomShootingPlanner` | Experimental |
 | EB-JEPA | Terver et al. 2026 | **Not implemented** | Referenced for comparison only |
 
@@ -457,6 +473,8 @@ The JEPA family has grown across several papers. Here is exactly what jepa-rs im
 | [I-JEPA](https://arxiv.org/abs/2301.08243) | Self-supervised image learning with masked prediction in latent space (Assran et al., CVPR 2023) |
 | [V-JEPA](https://arxiv.org/abs/2404.08471) | Extension to video with spatiotemporal masking (Bardes et al., 2024) |
 | [V-JEPA 2](https://arxiv.org/abs/2506.09985) | Video understanding, prediction, and planning (Bardes et al., 2025) |
+| [C-JEPA](https://arxiv.org/abs/2602.11389) | Object-centric world models via latent interventions (Nam et al., 2025) |
+| [Slot Attention](https://arxiv.org/abs/2006.15055) | Object-centric learning with slot attention (Locatello et al., NeurIPS 2020) |
 | [EB-JEPA](https://arxiv.org/abs/2602.03604) | Lightweight energy-based JEPA library — referenced for comparison (Terver et al., 2026) |
 
 ### Official reference implementations
@@ -466,6 +484,7 @@ The JEPA family has grown across several papers. Here is exactly what jepa-rs im
 | [`facebookresearch/ijepa`](https://github.com/facebookresearch/ijepa) | I-JEPA (archived) | Primary reference for `IJepa<B>` and key remapping |
 | [`facebookresearch/jepa`](https://github.com/facebookresearch/jepa) | V-JEPA | Primary reference for `VJepa<B>` |
 | [`facebookresearch/vjepa2`](https://github.com/facebookresearch/vjepa2) | V-JEPA 2 | Reference for cosine EMA schedule, ViT-G config |
+| [`galilai-group/cjepa`](https://github.com/galilai-group/cjepa) | C-JEPA | Primary reference for `ObjectMasking`, `SlotAttention`, `CausalJepaComponents` |
 | [`facebookresearch/eb_jepa`](https://github.com/facebookresearch/eb_jepa) | EB-JEPA tutorial | Not implemented — comparison only |
 
 ## Contributing
