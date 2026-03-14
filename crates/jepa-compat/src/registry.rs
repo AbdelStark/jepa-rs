@@ -87,6 +87,8 @@ pub enum ModelFamily {
     VJepa,
     /// Video JEPA 2 (Bardes et al., 2025).
     VJepa2,
+    /// Causal JEPA — object-centric world models (Nam et al., 2025).
+    CJepa,
 }
 
 impl std::fmt::Display for ModelFamily {
@@ -95,6 +97,7 @@ impl std::fmt::Display for ModelFamily {
             Self::IJepa => write!(f, "I-JEPA"),
             Self::VJepa => write!(f, "V-JEPA"),
             Self::VJepa2 => write!(f, "V-JEPA 2"),
+            Self::CJepa => write!(f, "C-JEPA"),
         }
     }
 }
@@ -259,6 +262,14 @@ pub fn list_vjepa_models() -> Vec<&'static PretrainedModel> {
         .collect()
 }
 
+/// List only C-JEPA models.
+pub fn list_cjepa_models() -> Vec<&'static PretrainedModel> {
+    list_models()
+        .into_iter()
+        .filter(|m| m.family == ModelFamily::CJepa)
+        .collect()
+}
+
 /// Look up a model by name (case-insensitive substring match).
 pub fn find_model(query: &str) -> Option<&'static PretrainedModel> {
     let query_lower = query.to_lowercase();
@@ -386,6 +397,14 @@ mod tests {
         assert_eq!(format!("{}", ModelFamily::IJepa), "I-JEPA");
         assert_eq!(format!("{}", ModelFamily::VJepa), "V-JEPA");
         assert_eq!(format!("{}", ModelFamily::VJepa2), "V-JEPA 2");
+        assert_eq!(format!("{}", ModelFamily::CJepa), "C-JEPA");
+    }
+
+    #[test]
+    fn test_cjepa_models_are_cjepa() {
+        for model in list_cjepa_models() {
+            assert_eq!(model.family, ModelFamily::CJepa);
+        }
     }
 
     #[test]
