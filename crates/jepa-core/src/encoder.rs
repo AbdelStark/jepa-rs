@@ -1,21 +1,17 @@
 //! Encoder trait for JEPA.
 //!
-//! Implements RFC-002 (Encoder Module).
-//!
 //! An encoder maps raw input (images, video, or already-embedded tokens)
 //! into a [`Representation`] in embedding space.
 //!
-//! In a JEPA training loop **two** encoder instances exist:
+//! In a JEPA training loop two encoder instances coexist:
 //!
-//! | Role | Gradients? | Weight update |
+//! | Role | Gradients | Weight update |
 //! |------|-----------|---------------|
-//! | **Context encoder** (θ) | Yes | Backpropagation |
-//! | **Target encoder** (ξ) | No | EMA of θ (see [`crate::ema::Ema`]) |
+//! | Context encoder (θ) | Yes | Backpropagation |
+//! | Target encoder (ξ) | No | EMA of θ (see [`crate::ema::Ema`]) |
 //!
-//! Both share the same architecture and implement this trait. The
-//! asymmetric update (EMA on the target) is what prevents collapse.
-//!
-//! See [`crate::collapse`] for the regularizers that complement EMA.
+//! Both share the same architecture. The asymmetric update rule
+//! (EMA on the target) is what prevents collapse.
 
 use burn::tensor::backend::Backend;
 

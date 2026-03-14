@@ -862,7 +862,7 @@ fn test_vjepa_strict_context_isolates_hidden_tubelets() {
 
 /// Integration test: full I-JEPA train step with real ViT encoder.
 ///
-/// This validates the complete pipeline as described in RFC-008:
+/// This validates the complete JEPA training pipeline:
 /// 1. Generate mask (jepa-core)
 /// 2. Encode with real ViT (jepa-vision)
 /// 3. Predict targets from context (jepa-vision)

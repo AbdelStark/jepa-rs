@@ -1,13 +1,7 @@
 //! Training step types, configuration, and metrics.
 //!
-//! Implements RFC-008 (Training Loop) — training state types.
-//!
-//! This module contains the data types that flow through a JEPA training
-//! loop:
-//!
 //! - [`TrainStepOutput`] — decomposed loss terms from a single step.
-//! - [`TrainConfig`] — validated hyperparameters (LR, momentum, batch
-//!   size, logging intervals, etc.).
+//! - [`TrainConfig`] — validated hyperparameters (LR, momentum, batch size).
 //! - [`TrainMetrics`] — running averages for logging windows.
 
 use burn::tensor::{backend::Backend, Tensor};

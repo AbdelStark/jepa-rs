@@ -1,7 +1,5 @@
 //! Hierarchical JEPA (H-JEPA) for multi-scale prediction.
 //!
-//! Implements RFC-010 (Hierarchical JEPA).
-//!
 //! H-JEPA stacks multiple JEPA levels, each operating at a different
 //! temporal and spatial abstraction scale:
 //!

@@ -2,35 +2,14 @@
 //!
 //! World model primitives for JEPA-based planning and control.
 //!
-//! This crate bridges the gap between learned representations (from
-//! [`jepa_core`] / `jepa-vision`) and decision-making. It provides:
-//!
-//! - **Action-conditioned dynamics** — predict next-state representations
-//!   given an action, enabling model-based rollout (RFC-009).
-//! - **Hierarchical JEPA (H-JEPA)** — stack multiple JEPA levels at
-//!   different temporal/spatial scales (RFC-010).
-//! - **Short-term memory** — bounded FIFO buffer of recent states for
-//!   multi-step planning context.
-//! - **Planning** — [`RandomShootingPlanner`] (CEM) evaluates candidate
-//!   action sequences against a learned world model and cost function.
-//!
 //! ```text
-//!                  ┌───────────────┐
-//! observation ────►│   Encoder     │──► s_t
-//!                  └───────────────┘     │
-//!                                        ▼
-//!                  ┌───────────────┐   ┌──────────────────────┐
-//!          a_t ───►│  Dynamics     │──►│  s_{t+1} ... s_{t+H} │──► CostFunction ──► plan
-//!                  │  (World Model)│   └──────────────────────┘
-//!                  └───────────────┘
+//! observation ──► Encoder ──► s_t ──► Dynamics(s_t, a_t) ──► s_{t+1}..s_{t+H} ──► Cost ──► plan
 //! ```
-//!
-//! ## Modules
 //!
 //! | Module | Contents |
 //! |--------|----------|
 //! | [`action`] | [`Action`] wrapper, [`ActionConditionedPredictor`] trait |
-//! | [`planner`] | [`WorldModel`], [`RandomShootingPlanner`] (CEM), [`CostFunction`] trait, [`L2Cost`] |
+//! | [`planner`] | [`WorldModel`], [`RandomShootingPlanner`] (CEM), [`CostFunction`], [`L2Cost`] |
 //! | [`hierarchy`] | [`HierarchicalJepa`], [`JepaLevel`] — multi-scale H-JEPA |
 //! | [`memory`] | [`ShortTermMemory`] — bounded ring buffer of recent states |
 

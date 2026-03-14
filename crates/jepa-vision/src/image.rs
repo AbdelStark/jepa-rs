@@ -1,24 +1,27 @@
-//! I-JEPA (Image Joint Embedding Predictive Architecture) pipeline.
+//! I-JEPA (Image Joint Embedding Predictive Architecture).
 //!
-//! Implements the complete I-JEPA model for self-supervised image learning,
-//! following Assran et al. (2023), *Self-Supervised Learning from Images
-//! with a Joint-Embedding Predictive Architecture*, CVPR.
+//! Complete I-JEPA pipeline for self-supervised image representation learning.
 //!
-//! ## Components
-//!
-//! | Component | Struct | Role |
-//! |-----------|--------|------|
-//! | Context encoder | [`VitEncoder`](crate::vit::VitEncoder) | Encodes visible (context) patches with gradients |
-//! | Target encoder | [`VitEncoder`](crate::vit::VitEncoder) | Encodes target patches; weights are an EMA copy — **no gradients** |
-//! | Predictor | [`TransformerPredictor`] | Narrow cross-attention transformer that predicts target representations from context |
-//! | Masking | [`BlockMasking`](jepa_core::masking::BlockMasking) | Generates contiguous rectangular target blocks |
-//!
-//! ## Strict forward step
+//! ```text
+//!                    ┌──────────────────┐
+//! visible patches ──►│ Context Encoder θ │──► s_x ──┐
+//!                    └──────────────────┘           │
+//!                                                   ▼
+//!                                            ┌────────────┐
+//!                      target positions ────►│  Predictor  │──► ŝ_y ─┐
+//!                                            └────────────┘         │  L2
+//!                    ┌──────────────────┐                           │ Energy
+//!  target patches ──►│ Target Encoder ξ  │──► s_y ──────────────────┘
+//!                    └──────────────────┘
+//!                          ↑ EMA(θ → ξ)
+//! ```
 //!
 //! [`IJepa::forward_step_strict`] implements the full masked training
-//! forward pass with pre-encoder token filtering, matching the reference
-//! PyTorch implementation. Use this path when you need exact parity
-//! with published I-JEPA results.
+//! forward pass with **pre-encoder** token filtering, matching the
+//! reference PyTorch implementation for exact parity.
+//!
+//! Reference: Assran et al. (2023), *Self-Supervised Learning from Images
+//! with a Joint-Embedding Predictive Architecture*, CVPR.
 
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;
@@ -371,7 +374,7 @@ impl<B: Backend> PredictorMlp<B> {
 
 /// I-JEPA model combining encoder pair and predictor.
 ///
-/// Provides a high-level interface for the I-JEPA pipeline per RFC-002 and RFC-003.
+/// Provides a high-level interface for the I-JEPA pipeline (Assran et al., 2023).
 #[derive(Module, Debug)]
 pub struct IJepa<B: Backend> {
     /// Context encoder — trained via gradient descent.

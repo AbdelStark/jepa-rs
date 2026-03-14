@@ -1,30 +1,22 @@
 //! V-JEPA video encoder with 3D tubelets and 3D RoPE.
 //!
-//! Implements RFC-002 (Encoder Module) for video input.
-//!
-//! V-JEPA extends I-JEPA from images to video by replacing 2-D patches
-//! with 3-D **tubelets** `(temporal × height × width)` and using 3-D
-//! Rotary Position Encoding for spatiotemporal position awareness.
+//! Extends I-JEPA from images to video by replacing 2-D patches with
+//! 3-D **tubelets** and using 3-D Rotary Position Encoding:
 //!
 //! ```text
-//! [B, C, T, H, W]
-//!       │
-//!       ▼
-//! TubeletEmbedding  ──►  3D RoPE  ──►  N × TransformerBlock  ──►  LayerNorm
-//! [B, S, D]              [B, S, D]     [B, S, D]                   [B, S, D]
+//! [B, C, T, H, W] → TubeletEmbedding → 3D RoPE → N × TransformerBlock → LayerNorm → [B, S, D]
 //! ```
 //!
 //! where `S = (T/t) × (H/h) × (W/w)` for tubelet size `(t, h, w)`.
 //!
-//! The module also provides [`VJepa`], a full V-JEPA pipeline struct
-//! with `forward_step_strict` for masked training with pre-encoder
-//! token filtering, mirroring the reference implementation.
+//! [`VJepa`] provides a full V-JEPA pipeline with `forward_step_strict`
+//! for masked training with pre-encoder token filtering.
 //!
 //! References:
-//! - Bardes, A. et al. (2024). *V-JEPA: Latent Video Prediction for
-//!   Visual Representation Learning*.
-//! - Bardes, A. et al. (2025). *V-JEPA 2: Self-Supervised Video Models
-//!   Enable Understanding, Generation, and Planning*.
+//! - Bardes et al. (2024), *V-JEPA: Latent Video Prediction for Visual
+//!   Representation Learning*.
+//! - Bardes et al. (2025), *V-JEPA 2: Self-Supervised Video Models Enable
+//!   Understanding, Generation, and Planning*.
 
 use burn::nn::{LayerNorm, LayerNormConfig, Linear, LinearConfig};
 use burn::prelude::*;
@@ -557,7 +549,7 @@ impl<B: Backend> VideoMlp<B> {
 
 /// V-JEPA model combining video encoder pair and predictor.
 ///
-/// Provides a high-level interface for the V-JEPA video pipeline per RFC-002 and RFC-003.
+/// Provides a high-level interface for the V-JEPA video pipeline (Bardes et al., 2024).
 /// Uses spatiotemporal masking of tubelets for self-supervised learning on video.
 #[derive(Module, Debug)]
 pub struct VJepa<B: Backend> {

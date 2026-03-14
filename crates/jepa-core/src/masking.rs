@@ -1,23 +1,18 @@
 //! Masking strategies for JEPA.
 //!
-//! Implements RFC-005 (Masking Strategies).
-//!
-//! Masking determines which input tokens are **context** (visible to the
-//! context encoder) and which are **targets** (predicted by the predictor,
-//! encoded by the target encoder). The masking strategy is arguably the
-//! single most important design decision in JEPA — it determines the
-//! *pretext task* and thus what the model learns.
-//!
-//! Three strategies are provided:
+//! Masking determines which input tokens form the **context** (visible to
+//! the context encoder) and which are **targets** (predicted by the
+//! predictor, encoded by the target encoder). The masking strategy defines
+//! the pretext task and directly controls what the model learns to predict.
 //!
 //! | Strategy | Domain | Reference |
 //! |----------|--------|-----------|
-//! | [`BlockMasking`] | Images | Assran et al. (2023), I-JEPA |
-//! | [`SpatiotemporalMasking`] | Video | Bardes et al. (2024), V-JEPA |
+//! | [`BlockMasking`] | Images | Assran et al. (2023), I-JEPA §3.2 |
+//! | [`SpatiotemporalMasking`] | Video | Bardes et al. (2024), V-JEPA §3 |
 //! | [`MultiBlockMasking`] | Images / Video | Bardes et al. (2025), V-JEPA 2 |
 //!
-//! All strategies guarantee disjoint, non-empty context and target sets
-//! (see [`MaskSpec::validate`](crate::types::MaskSpec::validate)).
+//! All strategies guarantee disjoint, non-empty context and target
+//! partitions (see [`MaskSpec::validate`](crate::types::MaskSpec::validate)).
 
 use std::collections::HashSet;
 
@@ -94,14 +89,21 @@ pub trait MaskingStrategy {
 
 /// Block masking for images (I-JEPA style).
 ///
-/// Masks one or more contiguous rectangular blocks as targets,
-/// with the remaining patches as context. This forces the model
-/// to predict large semantic regions from partial observations.
+/// Samples `num_targets` contiguous rectangular blocks as targets. Each
+/// block's area is drawn uniformly from `target_scale` (as a fraction
+/// of the total patch grid), and its aspect ratio from `target_aspect_ratio`.
+/// The remaining patches form the context.
+///
+/// This forces the model to predict large semantic regions from partial
+/// observations — the key inductive bias of I-JEPA.
+///
+/// Reference: Assran et al. (2023), §3.2 — "We sample four target blocks,
+/// each covering 15%–20% of patches with aspect ratios in [0.75, 1.5]."
 #[derive(Debug, Clone)]
 pub struct BlockMasking {
     /// Number of target blocks to mask.
     pub num_targets: usize,
-    /// Target block scale range as fraction of total patches: `(min, max)`.
+    /// Target block area as fraction of total patches: `(min, max)`.
     pub target_scale: (f64, f64),
     /// Target block aspect ratio range: `(min, max)`.
     pub target_aspect_ratio: (f64, f64),
@@ -157,15 +159,19 @@ impl MaskingStrategy for BlockMasking {
 
 /// Spatiotemporal masking for video (V-JEPA style).
 ///
-/// Masks contiguous 3D regions in space and time, forcing the model
-/// to predict temporal dynamics and spatial structure jointly.
+/// Masks contiguous 3D tubes spanning `temporal_extent` frames and
+/// `spatial_scale` fraction of each frame, forcing the model to
+/// jointly predict spatial structure and temporal dynamics.
+///
+/// Reference: Bardes et al. (2024), §3 — spatiotemporal tube masking
+/// for latent video prediction.
 #[derive(Debug, Clone)]
 pub struct SpatiotemporalMasking {
     /// Number of target tubes to mask.
     pub num_targets: usize,
-    /// Temporal extent range of each tube in frames: `(min, max)`.
+    /// Temporal extent range per tube in frames: `(min, max)`.
     pub temporal_extent: (usize, usize),
-    /// Spatial scale of each tube as fraction of frame area: `(min, max)`.
+    /// Spatial scale per tube as fraction of frame area: `(min, max)`.
     pub spatial_scale: (f64, f64),
 }
 
@@ -216,7 +222,9 @@ impl MaskingStrategy for SpatiotemporalMasking {
 
 /// Multi-block masking (V-JEPA 2 style).
 ///
-/// Masks multiple blocks with specific constraints on total coverage ratio.
+/// Distributes `mask_ratio × total_tokens` target tokens across
+/// `num_blocks` square-ish blocks, providing more uniform spatial
+/// coverage than single-block masking.
 #[derive(Debug, Clone)]
 pub struct MultiBlockMasking {
     /// Target masking ratio (fraction of tokens masked).

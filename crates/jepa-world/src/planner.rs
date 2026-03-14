@@ -1,20 +1,17 @@
 //! World model planning via rollout and plan evaluation.
 //!
-//! Implements RFC-009 (Action-Conditioned World Model) — planning component.
+//! Uses the **Cross-Entropy Method (CEM)** (Rubinstein & Kroese, 2004) —
+//! a derivative-free optimizer that iteratively samples action sequences,
+//! evaluates them via world model rollout, and refits the sampling
+//! distribution to the top-*k* elite candidates.
 //!
-//! A world model combines an encoder, dynamics model, and cost function
-//! to enable **model-based planning**: simulate candidate trajectories in
-//! representation space, score them, and select the best action sequence.
-//!
-//! The planner uses the **Cross-Entropy Method (CEM)** — a derivative-free
-//! optimizer that iteratively:
-//! 1. Samples random action sequences from a Gaussian.
-//! 2. Rolls out the dynamics model to get trajectories.
-//! 3. Evaluates each trajectory with a [`CostFunction`].
-//! 4. Refits the Gaussian to the top-*k* elite sequences.
-//!
-//! This approach works well even when the dynamics model and cost function
-//! are non-differentiable.
+//! ```text
+//! repeat for N iterations:
+//!   1. Sample K action sequences ~ N(μ, σ²)
+//!   2. Rollout dynamics: s_{t+1} = f(s_t, a_t)
+//!   3. Score trajectories with CostFunction
+//!   4. Refit (μ, σ²) to top-k elites
+//! ```
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};

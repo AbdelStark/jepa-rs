@@ -1,18 +1,19 @@
 //! Learning rate schedules for JEPA training.
 //!
-//! Implements RFC-008 (Training Loop) — schedule component.
-//!
-//! JEPA training typically uses a **warmup + cosine decay** schedule:
-//! the LR linearly ramps from near-zero to a peak, then follows a
-//! cosine curve back down. This is the standard recipe used by both
-//! I-JEPA and V-JEPA.
-//!
-//! Two implementations are provided:
+//! ```text
+//!      peak_lr ─────╮
+//!                    ╲  cosine decay
+//!  start_lr ╱         ╲
+//!          │           ╲
+//!   end_lr │            ╲───
+//!          ├──────┼──────────┤
+//!          0   warmup     total
+//! ```
 //!
 //! | Schedule | Behaviour |
 //! |----------|-----------|
-//! | [`WarmupCosineSchedule`] | Linear warmup → cosine decay (default for JEPA) |
-//! | [`ConstantSchedule`] | Fixed LR for testing or fine-tuning |
+//! | [`WarmupCosineSchedule`] | Linear warmup → cosine decay (I-JEPA, V-JEPA default) |
+//! | [`ConstantSchedule`] | Fixed LR (testing / fine-tuning) |
 
 /// A learning rate schedule.
 ///
