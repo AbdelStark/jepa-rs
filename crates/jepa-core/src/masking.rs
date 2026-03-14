@@ -10,6 +10,7 @@
 //! | [`BlockMasking`] | Images | Assran et al. (2023), I-JEPA §3.2 |
 //! | [`SpatiotemporalMasking`] | Video | Bardes et al. (2024), V-JEPA §3 |
 //! | [`MultiBlockMasking`] | Images / Video | Bardes et al. (2025), V-JEPA 2 |
+//! | [`ObjectMasking`] | Object slots | Nam et al. (2025), C-JEPA |
 //!
 //! All strategies guarantee disjoint, non-empty context and target
 //! partitions (see [`MaskSpec::validate`](crate::types::MaskSpec::validate)).
@@ -268,6 +269,70 @@ impl MaskingStrategy for MultiBlockMasking {
     }
 }
 
+/// Object-level masking for C-JEPA (Causal JEPA).
+///
+/// Masks entire object slots rather than spatial patches. Given
+/// `num_slots` object slots per frame, randomly partitions them into
+/// context (visible) and target (masked) subsets.
+///
+/// This forces the predictor to reason about inter-object interactions
+/// and enables causal inductive bias through latent interventions.
+///
+/// The `InputShape` parameter is ignored — the total token count is
+/// determined by `num_slots`.
+///
+/// Reference: Nam et al. (2025), *Causal-JEPA: Learning World Models
+/// through Object-Level Latent Interventions*.
+///
+/// # Example
+///
+/// ```
+/// use jepa_core::masking::{MaskingStrategy, ObjectMasking};
+/// use jepa_core::types::InputShape;
+/// use rand::SeedableRng;
+/// use rand_chacha::ChaCha8Rng;
+///
+/// let masking = ObjectMasking {
+///     num_slots: 7,
+///     mask_range: (2, 4),
+/// };
+/// // InputShape is unused; any shape works
+/// let shape = InputShape::Image { height: 1, width: 7 };
+/// let mut rng = ChaCha8Rng::seed_from_u64(42);
+/// let mask = masking.generate_mask(&shape, &mut rng);
+///
+/// assert!(mask.validate().is_ok());
+/// assert!(mask.target_indices.len() >= 2 && mask.target_indices.len() <= 4);
+/// ```
+#[derive(Debug, Clone)]
+pub struct ObjectMasking {
+    /// Total number of object slots per frame.
+    pub num_slots: usize,
+    /// Range of objects to mask per frame `[min, max]` (inclusive).
+    pub mask_range: (usize, usize),
+}
+
+impl MaskingStrategy for ObjectMasking {
+    fn generate_mask(&self, _shape: &InputShape, rng: &mut impl Rng) -> MaskSpec {
+        let total = self.num_slots;
+
+        // Sample how many objects to mask, clamped to valid range
+        let min_mask = self.mask_range.0.min(total.saturating_sub(1)).max(1);
+        let max_mask = self.mask_range.1.min(total.saturating_sub(1)).max(min_mask);
+        let num_to_mask = rng.random_range(min_mask..=max_mask);
+
+        // Fisher-Yates partial shuffle to select which slots to mask
+        let mut indices: Vec<usize> = (0..total).collect();
+        for i in 0..num_to_mask {
+            let j = rng.random_range(i..total);
+            indices.swap(i, j);
+        }
+
+        let target_set: HashSet<usize> = indices[..num_to_mask].iter().copied().collect();
+        finalize_mask(target_set, total, rng)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,6 +556,97 @@ mod tests {
         assert_eq!(mask.context_indices.len() + mask.target_indices.len(), 64);
     }
 
+    // --- ObjectMasking tests ---
+
+    #[test]
+    fn test_object_masking_valid() {
+        let masking = ObjectMasking {
+            num_slots: 7,
+            mask_range: (2, 4),
+        };
+        let shape = InputShape::Image {
+            height: 1,
+            width: 7,
+        };
+        let mask = masking.generate_mask(&shape, &mut rng(42));
+        assert!(mask.validate().is_ok());
+        assert!(mask.target_indices.len() >= 2 && mask.target_indices.len() <= 4);
+        assert_eq!(mask.total_tokens, 7);
+        assert_eq!(mask.context_indices.len() + mask.target_indices.len(), 7);
+    }
+
+    #[test]
+    fn test_object_masking_disjoint() {
+        let masking = ObjectMasking {
+            num_slots: 5,
+            mask_range: (1, 3),
+        };
+        let shape = InputShape::Image {
+            height: 1,
+            width: 5,
+        };
+        let mask = masking.generate_mask(&shape, &mut rng(42));
+        let context_set: std::collections::HashSet<_> = mask.context_indices.iter().collect();
+        for t in &mask.target_indices {
+            assert!(!context_set.contains(t), "overlap at index {t}");
+        }
+    }
+
+    #[test]
+    fn test_object_masking_reproducible() {
+        let masking = ObjectMasking {
+            num_slots: 7,
+            mask_range: (2, 4),
+        };
+        let shape = InputShape::Image {
+            height: 1,
+            width: 7,
+        };
+        let mask1 = masking.generate_mask(&shape, &mut rng(42));
+        let mask2 = masking.generate_mask(&shape, &mut rng(42));
+        assert_eq!(mask1.context_indices, mask2.context_indices);
+        assert_eq!(mask1.target_indices, mask2.target_indices);
+    }
+
+    #[test]
+    fn test_object_masking_mask_range_clamped() {
+        // mask_range exceeds num_slots — should still produce valid mask
+        let masking = ObjectMasking {
+            num_slots: 3,
+            mask_range: (1, 100),
+        };
+        let shape = InputShape::Image {
+            height: 1,
+            width: 3,
+        };
+        let mask = masking.generate_mask(&shape, &mut rng(42));
+        assert!(mask.validate().is_ok());
+        assert!(
+            !mask.context_indices.is_empty(),
+            "must keep at least one context"
+        );
+        assert!(
+            !mask.target_indices.is_empty(),
+            "must mask at least one target"
+        );
+    }
+
+    #[test]
+    fn test_object_masking_minimum_slots() {
+        let masking = ObjectMasking {
+            num_slots: 2,
+            mask_range: (1, 1),
+        };
+        let shape = InputShape::Image {
+            height: 1,
+            width: 2,
+        };
+        let mask = masking.generate_mask(&shape, &mut rng(42));
+        assert!(mask.validate().is_ok());
+        assert_eq!(mask.context_indices.len(), 1);
+        assert_eq!(mask.target_indices.len(), 1);
+    }
+
     // --- Property-based tests ---
 
     proptest! {
@@ -577,6 +733,35 @@ mod tests {
             prop_assert!(mask.validate().is_ok());
             prop_assert!(!mask.context_indices.is_empty());
             prop_assert!(!mask.target_indices.is_empty());
+        }
+
+        #[test]
+        fn prop_object_mask_always_valid(
+            seed in 0u64..100000,
+            num_slots in 2usize..20,
+            min_mask in 1usize..10,
+        ) {
+            let max_mask = min_mask + 2;
+            let masking = ObjectMasking {
+                num_slots,
+                mask_range: (min_mask, max_mask),
+            };
+            let shape = InputShape::Image { height: 1, width: num_slots };
+            let mask = masking.generate_mask(&shape, &mut rng(seed));
+
+            prop_assert!(mask.validate().is_ok());
+            prop_assert_eq!(mask.context_indices.len() + mask.target_indices.len(), num_slots);
+            prop_assert!(!mask.context_indices.is_empty());
+            prop_assert!(!mask.target_indices.is_empty());
+            prop_assert_eq!(mask.total_tokens, num_slots);
+
+            // All indices in bounds
+            for &i in &mask.context_indices {
+                prop_assert!(i < num_slots);
+            }
+            for &i in &mask.target_indices {
+                prop_assert!(i < num_slots);
+            }
         }
 
         #[test]
