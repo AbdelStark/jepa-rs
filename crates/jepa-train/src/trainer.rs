@@ -1,28 +1,14 @@
 //! JEPA training step orchestration.
 //!
-//! Implements RFC-008 (Training Loop) — the core forward-step that ties
-//! together all JEPA components.
+//! [`JepaComponents`] bundles all JEPA components (encoder, predictor,
+//! energy function, regularizer, masking) and exposes
+//! [`forward_step`](JepaComponents::forward_step) /
+//! [`try_forward_step`](JepaComponents::try_forward_step) to run the
+//! full forward pass and return decomposed loss terms.
 //!
-//! [`JepaComponents`] is a generic struct that borrows references to an
-//! encoder, predictor, energy function, collapse regularizer, masking
-//! strategy, and EMA updater. Calling [`JepaComponents::forward_step`]
-//! (or the fallible [`JepaComponents::try_forward_step`]) runs the full
-//! JEPA forward pass and returns a [`JepaForwardOutput`] containing
-//! decomposed loss terms ready for backpropagation.
-//!
-//! The trainer does **not** own the optimizer — that is the caller's
-//! responsibility, following burn's convention of keeping model logic
-//! separate from optimization.
-//!
-//! ## Limitation: post-encoder masking
-//!
-//! Because [`Encoder::Input`] is an opaque
-//! associated type, `forward_step` cannot remove hidden target tokens
-//! **before** encoder self-attention. Tokens are filtered *after* the
-//! encoder forward pass. For strict pre-encoder masking (needed for exact
-//! parity with the reference implementations), use:
-//! - `jepa_vision::image::IJepa::forward_step_strict`
-//! - `jepa_vision::video::VJepa::forward_step_strict`
+//! **Post-encoder masking:** because [`Encoder::Input`] is opaque, this
+//! orchestrator filters tokens *after* encoding. For strict pre-encoder
+//! masking, use the modality-specific helpers in `jepa-vision`.
 
 use burn::tensor::{backend::Backend, Tensor, TensorData};
 
@@ -127,7 +113,7 @@ where
 
     /// Execute a single JEPA training step forward pass.
     ///
-    /// Orchestrates the full JEPA training pipeline per RFC-008:
+    /// Orchestrates the full JEPA training pipeline:
     /// 1. Generate a mask to split input into context/target
     /// 2. Encode context with the context encoder (gradients flow)
     /// 3. Encode targets with the target encoder (no gradient update — EMA only)

@@ -1,30 +1,26 @@
 //! Vision Transformer (ViT) encoder for JEPA.
 //!
-//! Implements RFC-002 (Encoder Module) — concrete ViT encoder.
-//!
-//! The ViT encoder converts an image into a sequence of patch-level
-//! representations suitable for JEPA training and inference.
+//! Converts an image into a sequence of patch-level representations:
 //!
 //! ```text
-//! [B, C, H, W]  ──►  PatchEmbedding  ──►  2D RoPE  ──►  N × TransformerBlock  ──►  LayerNorm
-//!                   [B, S, D]         [B, S, D]        [B, S, D]                   [B, S, D]
+//! [B, C, H, W] → PatchEmbedding → 2D RoPE → N × TransformerBlock → LayerNorm → [B, S, D]
 //! ```
 //!
-//! Six preset configurations are provided:
-//!
-//! | Preset | Layers | Dim | Heads | Params (approx.) |
-//! |--------|--------|-----|-------|------------------|
-//! | `tiny_test` | 2 | 32 | 2 | ~12 K |
+//! | Preset | Layers | Dim | Heads | Params |
+//! |--------|--------|-----|-------|--------|
+//! | `tiny_test` | 2 | 32 | 4 | ~12 K |
 //! | `vit_small_patch16` | 12 | 384 | 6 | ~22 M |
 //! | `vit_base_patch16` | 12 | 768 | 12 | ~86 M |
 //! | `vit_large_patch16` | 24 | 1024 | 16 | ~307 M |
 //! | `vit_huge_patch14` | 32 | 1280 | 16 | ~632 M |
-//! | `vit_giant_patch14` | 40 | 1408 | 16 | ~1.0 B |
+//! | `vit_giant_patch16` | 40 | 1408 | 16 | ~1.0 B |
 //!
-//! Two forward paths exist:
-//! - [`VitEncoder::forward`] — encode all patches (standard inference).
-//! - [`VitEncoder::forward_visible_tokens`] — encode only visible (context)
-//!   patches for efficient masked training.
+//! Two forward paths:
+//! - [`VitEncoder::forward`] — encode all patches (inference).
+//! - [`VitEncoder::forward_visible_tokens`] — encode only visible patches
+//!   (efficient masked training with pre-encoder token filtering).
+//!
+//! Reference: Dosovitskiy et al. (2021), *An Image is Worth 16x16 Words*.
 
 use std::collections::HashMap;
 
@@ -561,7 +557,12 @@ impl TransformerBlockConfig {
     }
 }
 
-/// Pre-norm transformer block: LN → Attention → residual → LN → MLP → residual.
+/// Pre-norm transformer block.
+///
+/// ```text
+/// x = x + Attention(LayerNorm(x))
+/// x = x + MLP(LayerNorm(x))
+/// ```
 #[derive(Module, Debug)]
 struct TransformerBlock<B: Backend> {
     norm1: LayerNorm<B>,
@@ -606,9 +607,11 @@ impl MultiHeadSelfAttentionConfig {
     }
 }
 
-/// Multi-head self-attention.
+/// Multi-head self-attention (Vaswani et al., 2017).
 ///
-/// Computes scaled dot-product attention across multiple heads.
+/// ```text
+/// Attention(Q, K, V) = softmax(Q · Kᵀ / √d_k) · V
+/// ```
 #[derive(Module, Debug)]
 struct MultiHeadSelfAttention<B: Backend> {
     /// Combined QKV projection.
@@ -679,7 +682,11 @@ impl MlpConfig {
     }
 }
 
-/// Two-layer MLP with GELU activation.
+/// Two-layer feed-forward network with GELU activation.
+///
+/// ```text
+/// MLP(x) = W₂ · GELU(W₁ · x + b₁) + b₂
+/// ```
 #[derive(Module, Debug)]
 struct Mlp<B: Backend> {
     fc1: Linear<B>,

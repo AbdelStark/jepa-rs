@@ -1,13 +1,11 @@
 //! Configuration types for JEPA architecture.
 //!
-//! Implements RFC-001 (Core Tensor Abstractions) — configuration component.
-//!
 //! [`JepaConfig`] captures the hyperparameters that define the shape and
 //! size of the encoder, predictor, and training components. Four standard
 //! ViT presets are included (Base/16, Large/16, Huge/14, giant/14), and
 //! a validated [`JepaConfigBuilder`] supports ergonomic customization.
 //!
-//! All configs are serializable via `serde` for checkpoint reproducibility.
+//! All configs are `serde`-serializable for checkpoint reproducibility.
 
 use serde::{Deserialize, Serialize};
 

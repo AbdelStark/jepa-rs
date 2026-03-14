@@ -1,27 +1,23 @@
 //! Exponential Moving Average (EMA) for target encoder updates.
 //!
-//! Implements RFC-007 (EMA Target Encoder).
-//!
 //! In JEPA the target encoder is **not** trained by gradient descent.
-//! Instead, after every training step its weights ξ are updated as an
-//! exponential moving average of the context encoder's weights θ:
+//! Instead, its weights ξ track the context encoder's weights θ via EMA:
 //!
 //! ```text
-//! ξ ← m · ξ + (1 − m) · θ
+//! ξ ← m · ξ + (1 − m) · θ       m ∈ [0, 1]
 //! ```
 //!
-//! where `m ∈ [0, 1]` is the momentum. Typical values are 0.996–0.9999.
-//!
-//! This asymmetry is a key ingredient for avoiding representational
-//! collapse: the slowly-changing target provides a stable prediction
-//! objective while the context encoder explores.
+//! Typical momentum values are 0.996–0.9999. This asymmetry is a key
+//! ingredient for avoiding representational collapse: the slowly-changing
+//! target provides a stable prediction objective.
 //!
 //! Two momentum modes are supported:
 //!
 //! - **Constant** — `m` is fixed throughout training.
-//! - **Cosine schedule** — `m` increases from a base value to 1.0
-//!   following a cosine curve, so the target becomes progressively
-//!   more stable as training converges (V-JEPA 2 style).
+//! - **Cosine schedule** — `m` ramps from `m₀` to 1.0 via a cosine curve,
+//!   making the target progressively more stable as training converges.
+//!
+//! Reference: Grill et al. (2020), BYOL; Assran et al. (2023), I-JEPA §3.3.
 
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;

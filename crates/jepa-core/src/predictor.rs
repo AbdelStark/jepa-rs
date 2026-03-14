@@ -1,7 +1,5 @@
 //! Predictor trait for JEPA.
 //!
-//! Implements RFC-003 (Predictor Module).
-//!
 //! The predictor is the *generative* component of JEPA. Given the context
 //! encoder's output and a set of target positions, it predicts what the
 //! target encoder would produce for those positions.

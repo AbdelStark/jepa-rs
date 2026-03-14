@@ -1,7 +1,7 @@
 //! World model planning demonstration.
 //!
 //! This example demonstrates the action-conditioned world model and
-//! random-shooting planner (CEM) from RFC-009.
+//! random-shooting planner (CEM).
 //!
 //! Scenario: A simple 2D navigation task where an agent must plan
 //! a sequence of actions to move from a start position to a goal

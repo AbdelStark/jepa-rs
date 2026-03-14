@@ -1,23 +1,26 @@
-//! Rotary Position Embedding (RoPE) for 2D spatial positions.
+//! 2D Rotary Position Embedding (RoPE).
 //!
-//! Implements position encoding from RFC-002 (Encoder Module).
+//! Encodes absolute token positions by rotating embedding dimensions
+//! using sinusoidal frequencies:
 //!
-//! Rotary Position Embedding encodes absolute token positions by rotating
-//! query and key vectors in attention. Unlike learned positional
-//! embeddings, RoPE is parameter-free, extrapolates to unseen lengths,
-//! and makes relative distances naturally emerge from the dot product.
+//! ```text
+//! RoPE(x, pos) = [x₁·cos(θ) − x₂·sin(θ),  x₁·sin(θ) + x₂·cos(θ)]
 //!
-//! For 2D images the embedding dimension is split into two halves:
-//! one half encodes the row position, the other half encodes the column
-//! position, giving each patch a unique spatial signature.
+//! θᵢ = pos / base^(2i/d)
+//! ```
+//!
+//! For 2D images the embedding is split: the first half encodes row
+//! position, the second half encodes column position.
 //!
 //! ```text
 //! embed_dim = [── height freqs ──|── width freqs ──]
-//!              quarter_dim         quarter_dim
 //! ```
 //!
-//! Sin/cos tables are **precomputed** at init time for a fixed maximum
+//! Sin/cos tables are precomputed at init time for a fixed maximum
 //! grid size, then sliced to `seq_len` at forward time.
+//!
+//! Properties: parameter-free, extrapolates to unseen lengths, and
+//! relative distances emerge naturally from the dot product.
 //!
 //! For 3D video RoPE, see [`crate::video`].
 //!

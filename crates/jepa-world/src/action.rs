@@ -1,20 +1,13 @@
 //! Action types and action-conditioned prediction for world models.
 //!
-//! Implements RFC-009 (Action-Conditioned World Model).
-//!
-//! An action-conditioned predictor takes the current state representation
-//! and an action, then predicts the next state representation:
+//! The dynamics model predicts next-state representations given an action:
 //!
 //! ```text
 //! s_{t+1} = f(s_t, a_t)
 //! ```
 //!
-//! This is the **dynamics model** component of a world model. It enables
-//! model-based planning by simulating future trajectories in representation
-//! space without executing actions in the real environment.
-//!
-//! Actions can be continuous (e.g. robot joint torques) or discrete
-//! (encoded as one-hot vectors).
+//! This enables model-based planning by simulating trajectories in
+//! representation space without executing actions in the real environment.
 
 use burn::tensor::{backend::Backend, Tensor};
 

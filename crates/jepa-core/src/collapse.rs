@@ -1,21 +1,18 @@
 //! Collapse prevention regularizers for JEPA.
 //!
-//! Implements RFC-006 (Collapse Prevention).
-//!
-//! Without explicit regularization, joint-embedding models can
-//! *collapse* — all inputs map to the same constant representation,
-//! yielding zero energy but zero information. While EMA target updates
-//! (see [`crate::ema`]) help, they are not sufficient alone. This
-//! module provides two complementary regularizers:
+//! Without regularization, joint-embedding models can *collapse* — all
+//! inputs map to the same constant representation, achieving zero energy
+//! but encoding zero information. While EMA target updates (see
+//! [`crate::ema`]) provide implicit regularization, explicit terms
+//! strengthen the guarantee:
 //!
 //! | Regularizer | Strategy | Reference |
 //! |-------------|----------|-----------|
-//! | [`VICReg`] | Variance + Invariance + Covariance | Bardes et al. (2022), VICReg |
-//! | [`BarlowTwins`] | Cross-correlation → identity | Zbontar et al. (2021), Barlow Twins |
+//! | [`VICReg`] | Variance + Invariance + Covariance | Bardes et al. (2022) |
+//! | [`BarlowTwins`] | Cross-correlation → identity matrix | Zbontar et al. (2021) |
 //!
-//! Both implement the [`CollapseRegularizer`] trait and return a scalar
-//! loss term that should be added (with appropriate weighting) to the
-//! energy loss during training.
+//! Both implement [`CollapseRegularizer`] and return a scalar loss term
+//! to be added to the energy loss during training.
 
 use burn::tensor::{backend::Backend, Tensor};
 
@@ -57,10 +54,16 @@ impl<B: Backend> VICRegLoss<B> {
 
 /// VICReg (Variance-Invariance-Covariance Regularization).
 ///
-/// Prevents collapse by enforcing:
-/// 1. **Variance**: each embedding dimension has high variance across the batch
-/// 2. **Invariance**: representations of positive pairs are similar
-/// 3. **Covariance**: different embedding dimensions capture different information
+/// ```text
+/// L_VICReg = λ · L_inv + μ · L_var + ν · L_cov
+///
+/// L_inv = (1/N) Σ ‖zᵃᵢ − zᵇᵢ‖²           (invariance: paired representations match)
+/// L_var = (1/D) Σⱼ max(0, γ − σⱼ)          (variance: each dimension has high std)
+/// L_cov = (1/D) Σᵢ≠ⱼ Cᵢⱼ²                  (covariance: dimensions are decorrelated)
+/// ```
+///
+/// Reference: Bardes, A. et al. (2022), *VICReg: Variance-Invariance-Covariance
+/// Regularization for Self-Supervised Learning*, ICLR.
 ///
 /// # Example
 ///
@@ -196,13 +199,17 @@ impl<B: Backend> CollapseRegularizer<B> for VICReg {
 
 /// Barlow Twins regularization.
 ///
-/// Prevents collapse by making the cross-correlation matrix between two
-/// representation branches approach the identity matrix. This enforces:
-/// 1. **Invariance**: diagonal elements ≈ 1 (paired representations are similar)
-/// 2. **Redundancy reduction**: off-diagonal elements ≈ 0 (dimensions are decorrelated)
+/// ```text
+/// L_BT = Σᵢ (1 − Cᵢᵢ)² + λ · Σᵢ≠ⱼ Cᵢⱼ²
 ///
-/// Reference: Zbontar et al. (2021), "Barlow Twins: Self-Supervised Learning via
-/// Redundancy Reduction", ICML.
+/// C = Z̃ᵃᵀ · Z̃ᵇ / N     (cross-correlation of standardized representations)
+/// ```
+///
+/// Drives the cross-correlation matrix C toward the identity: diagonal
+/// elements → 1 (invariance), off-diagonal → 0 (redundancy reduction).
+///
+/// Reference: Zbontar et al. (2021), *Barlow Twins: Self-Supervised Learning
+/// via Redundancy Reduction*, ICML.
 #[derive(Debug, Clone)]
 pub struct BarlowTwins {
     /// Weight for the off-diagonal (redundancy reduction) term (default: 0.005).

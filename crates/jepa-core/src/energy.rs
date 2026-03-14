@@ -1,23 +1,24 @@
 //! Energy functions for measuring representation compatibility.
 //!
-//! Implements RFC-004 (Energy Functions).
-//!
-//! In JEPA, the **energy function** is the primary training signal. It
-//! measures the distance between the predictor's output (ŝ_y) and the
-//! target encoder's output (s_y). Lower energy means a better prediction,
-//! i.e. a more compatible (context, target) pair.
+//! In JEPA, the **energy function** `E` is the primary training signal. It
+//! measures the distance between the predictor's output ŝ_y and the target
+//! encoder's output s_y. Lower energy indicates a better prediction:
 //!
 //! ```text
-//! E(s_x, s_y; z) = d(Predictor(s_x, z), s_y)
+//! E(s_x, s_y) = d(Predictor(s_x), s_y)
 //! ```
 //!
-//! Three implementations are provided:
+//! The choice of distance function `d` controls the geometry of the learned
+//! representation space. Three implementations are provided:
 //!
 //! | Type | Formula | Use case |
 //! |------|---------|----------|
-//! | [`L2Energy`] | mean squared error | I-JEPA, V-JEPA (default) |
-//! | [`CosineEnergy`] | `1 − cos_sim` | Direction-sensitive matching |
-//! | [`SmoothL1Energy`] | Huber loss | Outlier-robust training |
+//! | [`L2Energy`] | `(1/N) Σ (ŝ − s)²` | I-JEPA, V-JEPA (default) |
+//! | [`CosineEnergy`] | `1 − cos(ŝ, s)` | Direction-sensitive matching |
+//! | [`SmoothL1Energy`] | Huber loss (β) | Outlier-robust training |
+//!
+//! Reference: Assran et al. (2023), §3.1 — "the loss is the average L2
+//! distance between predicted and target patch-level representations."
 
 use burn::tensor::{backend::Backend, Tensor};
 
@@ -58,10 +59,15 @@ pub trait EnergyFn<B: Backend> {
     fn compute(&self, predicted: &Representation<B>, actual: &Representation<B>) -> Energy<B>;
 }
 
-/// L2 distance in representation space (used by I-JEPA, V-JEPA).
+/// L2 (mean squared error) energy in representation space.
 ///
-/// Computes the mean squared error between predicted and actual
-/// representations, averaged over all dimensions.
+/// ```text
+/// E_L2 = (1 / N) Σᵢ (ŝᵢ − sᵢ)²
+/// ```
+///
+/// where N = batch × seq_len × embed_dim. This is the default energy
+/// function in both I-JEPA (Assran et al., 2023) and V-JEPA (Bardes
+/// et al., 2024).
 #[derive(Debug, Clone, Copy)]
 pub struct L2Energy;
 
@@ -76,10 +82,16 @@ impl<B: Backend> EnergyFn<B> for L2Energy {
     }
 }
 
-/// Cosine similarity energy.
+/// Cosine distance energy.
 ///
-/// Computes `1 - cosine_similarity` so that identical representations
-/// yield energy ≈ 0 and orthogonal representations yield energy ≈ 1.
+/// ```text
+/// E_cos = 1 − (1/T) Σₜ cos(ŝₜ, sₜ)
+///
+/// cos(a, b) = (a · b) / (‖a‖ · ‖b‖ + ε)
+/// ```
+///
+/// Identical representations yield energy ≈ 0; orthogonal yield ≈ 1;
+/// antiparallel yield ≈ 2. Useful when only direction matters, not magnitude.
 #[derive(Debug, Clone, Copy)]
 pub struct CosineEnergy;
 
@@ -117,13 +129,19 @@ impl<B: Backend> EnergyFn<B> for CosineEnergy {
     }
 }
 
-/// Smooth L1 energy (Huber loss variant).
+/// Smooth L1 (Huber) energy.
 ///
-/// Behaves as L2 for small differences (< beta) and L1 for large differences.
-/// This makes it less sensitive to outliers than pure L2.
+/// ```text
+///              ⎧ 0.5 · δ² / β    if |δ| < β
+/// SmoothL1(δ) = ⎨
+///              ⎩ |δ| − 0.5 · β   otherwise
+/// ```
+///
+/// Transitions from quadratic (L2) to linear (L1) at `|δ| = β`,
+/// providing outlier robustness while keeping smooth gradients near zero.
 #[derive(Debug, Clone, Copy)]
 pub struct SmoothL1Energy {
-    /// Threshold below which the loss is L2-like.
+    /// Transition threshold between L2 and L1 regimes.
     pub beta: f64,
 }
 

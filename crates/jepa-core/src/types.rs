@@ -1,14 +1,11 @@
-//! Core data types for JEPA.
-//!
-//! This module provides the semantic tensor wrappers that form the common
-//! vocabulary across every JEPA crate:
+//! Semantic tensor wrappers and core data types for JEPA.
 //!
 //! | Type | Shape | Role |
 //! |------|-------|------|
-//! | [`Representation`] | `[B, S, D]` | Encoder / predictor output with optional validity mask |
-//! | [`Energy`] | `[1]` | Scalar compatibility score (lower = better) |
-//! | [`MaskSpec`] | — | Disjoint context / target index partition |
-//! | [`InputShape`] | — | 2-D image or 3-D video grid dimensions |
+//! | [`Representation`] | `[B, S, D]` | Encoder/predictor output with optional validity mask |
+//! | [`Energy`] | `[1]` | Scalar distance in representation space (lower = better) |
+//! | [`MaskSpec`] | — | Disjoint context/target index partition |
+//! | [`InputShape`] | — | 2-D image or 3-D video patch grid dimensions |
 //! | [`MaskError`] | — | Validation errors for [`MaskSpec`] |
 //!
 //! All tensor-bearing types are generic over `B: Backend`.
@@ -23,7 +20,7 @@ use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
 ///
 /// Shape: `[batch_size, sequence_length, embed_dim]`
 ///
-/// Per RFC-001, an optional mask tensor indicates which positions are valid,
+/// An optional mask tensor indicates which positions are valid,
 /// enabling variable-length sequences and masked operations.
 #[derive(Debug, Clone)]
 pub struct Representation<B: Backend> {

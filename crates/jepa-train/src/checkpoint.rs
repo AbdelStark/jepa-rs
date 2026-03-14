@@ -1,16 +1,8 @@
 //! Checkpoint metadata for JEPA training save/resume.
 //!
-//! Implements RFC-008 (Training Loop) — checkpoint component.
-//!
-//! [`CheckpointMeta`] captures the training state at the moment a
-//! checkpoint is saved: current step, learning rate, EMA momentum,
-//! and last loss. It is serializable via `serde` so it can be stored
-//! alongside model weights (e.g. in a `.json` sidecar file next to a
-//! `.safetensors` checkpoint).
-//!
-//! This metadata is sufficient to resume training from exactly where
-//! it left off, including restoring the learning rate schedule position
-//! and EMA momentum.
+//! [`CheckpointMeta`] captures training state (step, LR, EMA momentum, loss)
+//! at the moment a checkpoint is saved. Serializable via `serde` for storage
+//! alongside model weights (e.g. a `.json` sidecar next to `.safetensors`).
 
 use serde::{Deserialize, Serialize};
 

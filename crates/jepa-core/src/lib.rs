@@ -94,20 +94,20 @@ pub mod masking;
 pub mod predictor;
 pub mod types;
 
-// Core types
+// --- Types ---
 pub use types::{Energy, InputShape, MaskError, MaskSpec, Representation};
 
-// Traits
+// --- Traits ---
 pub use collapse::CollapseRegularizer;
 pub use encoder::Encoder;
 pub use energy::EnergyFn;
 pub use masking::MaskingStrategy;
 pub use predictor::Predictor;
 
-// Config
+// --- Configuration ---
 pub use config::{ConfigError, JepaConfig, JepaConfigBuilder};
 
-// Concrete implementations
+// --- Concrete implementations ---
 pub use collapse::{BarlowTwins, VICReg};
 pub use ema::{CosineMomentumSchedule, Ema};
 pub use energy::{CosineEnergy, L2Energy, SmoothL1Energy};
