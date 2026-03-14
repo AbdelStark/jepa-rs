@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>jepa-rs — WebGPU Browser Demo</title>
+    <link data-trunk rel="css" href="assets/style.css">
+    <link data-trunk rel="rust" data-wasm-opt="z" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <header>
+        <h1>jepa-rs <span class="subtitle">WebGPU Browser Demo</span></h1>
+        <p class="tagline">Self-supervised JEPA training &amp; inference — running entirely in your browser</p>
+    </header>
+
+    <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="training" role="tab" aria-selected="true">Training</button>
+        <button class="tab" data-tab="inference" role="tab" aria-selected="false">Inference</button>
+        <button class="tab" data-tab="architecture" role="tab" aria-selected="false">Architecture</button>
+    </nav>
+
+    <!-- ═══════════════ TRAINING TAB ═══════════════ -->
+    <section id="training-tab" class="tab-content active">
+        <div class="panel-row">
+            <div class="panel config-panel">
+                <h2>Configuration</h2>
+                <div class="form-group">
+                    <label for="lr">Learning Rate</label>
+                    <input type="number" id="lr" value="0.001" step="0.0001" min="0.00001" max="0.1">
+                </div>
+                <div class="form-group">
+                    <label for="batch-size">Batch Size</label>
+                    <input type="number" id="batch-size" value="2" min="1" max="8">
+                </div>
+                <div class="form-group">
+                    <label for="total-steps">Total Steps</label>
+                    <input type="number" id="total-steps" value="200" min="10" max="2000">
+                </div>
+                <div class="form-group">
+                    <label for="warmup-steps">Warmup Steps</label>
+                    <input type="number" id="warmup-steps" value="20" min="0" max="500">
+                </div>
+                <div class="form-group">
+                    <label for="ema-momentum">EMA Momentum</label>
+                    <input type="number" id="ema-momentum" value="0.996" step="0.001" min="0.9" max="1.0">
+                </div>
+                <div class="form-group">
+                    <label for="reg-weight">Reg Weight</label>
+                    <input type="number" id="reg-weight" value="1.0" step="0.1" min="0" max="10">
+                </div>
+                <div class="button-row">
+                    <button id="btn-start" class="btn btn-primary">Start</button>
+                    <button id="btn-pause" class="btn" disabled>Pause</button>
+                    <button id="btn-reset" class="btn btn-danger" disabled>Reset</button>
+                </div>
+                <div id="model-info" class="model-info"></div>
+            </div>
+
+            <div class="panel charts-panel">
+                <h2>Training Progress</h2>
+                <div class="status-bar">
+                    <span id="step-counter">Step: 0 / 200</span>
+                    <span id="elapsed-time">Elapsed: 0.0s</span>
+                    <span id="step-rate">0 steps/s</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="loss-chart"></canvas>
+                </div>
+                <div class="chart-row">
+                    <div class="chart-container small">
+                        <canvas id="energy-reg-chart"></canvas>
+                    </div>
+                    <div class="chart-container small">
+                        <canvas id="lr-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ INFERENCE TAB ═══════════════ -->
+    <section id="inference-tab" class="tab-content">
+        <div class="panel-row">
+            <div class="panel">
+                <h2>Input</h2>
+                <div class="form-group">
+                    <label for="pattern-select">Demo Pattern</label>
+                    <select id="pattern-select">
+                        <option value="gradient">Gradient</option>
+                        <option value="checkerboard">Checkerboard</option>
+                        <option value="rings">Rings</option>
+                        <option value="noise">Random Noise</option>
+                    </select>
+                </div>
+                <button id="btn-run-inference" class="btn btn-primary">Run Inference</button>
+
+                <div class="divider"></div>
+
+                <h3>Upload Image</h3>
+                <input type="file" id="image-upload" accept="image/*">
+                <canvas id="input-canvas" width="128" height="128"></canvas>
+
+                <div class="divider"></div>
+
+                <h3>Draw</h3>
+                <canvas id="draw-canvas" width="128" height="128" class="draw-canvas"></canvas>
+                <div class="button-row">
+                    <button id="btn-clear-canvas" class="btn">Clear</button>
+                    <button id="btn-infer-drawing" class="btn btn-primary">Infer Drawing</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Results</h2>
+                <div id="inference-stats" class="stats-grid"></div>
+                <h3>Patch Norm Heatmap</h3>
+                <canvas id="heatmap-canvas" width="256" height="256"></canvas>
+                <div id="inference-latency" class="latency"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ ARCHITECTURE TAB ═══════════════ -->
+    <section id="architecture-tab" class="tab-content">
+        <div class="panel wide">
+            <h2>I-JEPA Architecture</h2>
+            <div class="arch-diagram">
+                <pre class="diagram-ascii">
+                    ┌────────────────┐
+         x_context ─►  Context       │
+                    │  Encoder (θ)   ├─► s_x ──┐
+                    └────────────────┘         │
+                                               ▼
+                                         ┌──────────┐
+                               z (opt.) ─►          │
+                                         │ Predictor├─► ŝ_y ──┐
+                      target_positions ─►│          │         │
+                                         └──────────┘         │  ┌──────────┐
+                                                              ├──► EnergyFn │─► loss
+                    ┌────────────────┐                        │  └──────────┘
+         x_target  ─►  Target        │                        │
+                    │  Encoder (ξ)   ├─► s_y ─────────────────┘
+                    └────────────────┘
+                         ↑
+                         │ EMA(θ → ξ)
+                </pre>
+            </div>
+
+            <div class="arch-details">
+                <div class="arch-card">
+                    <h3>Context Encoder</h3>
+                    <p>Vision Transformer (ViT) that encodes visible patches with gradient flow.
+                       Only sees unmasked context tokens — target patches are removed <em>before</em>
+                       self-attention.</p>
+                    <code>crates/jepa-vision/src/vit.rs → VitEncoder</code>
+                </div>
+                <div class="arch-card">
+                    <h3>Target Encoder</h3>
+                    <p>Same ViT architecture as the context encoder, but weights are updated via
+                       Exponential Moving Average (EMA) — no gradients flow through this path.</p>
+                    <code>crates/jepa-core/src/ema.rs → Ema</code>
+                </div>
+                <div class="arch-card">
+                    <h3>Predictor</h3>
+                    <p>Narrow transformer that predicts target representations from context
+                       embeddings using position-conditioned prediction tokens.</p>
+                    <code>crates/jepa-vision/src/image.rs → TransformerPredictor</code>
+                </div>
+                <div class="arch-card">
+                    <h3>Block Masking</h3>
+                    <p>Generates contiguous rectangular blocks of masked target patches on the
+                       2D patch grid, ensuring context and target tokens are disjoint.</p>
+                    <code>crates/jepa-core/src/masking.rs → BlockMasking</code>
+                </div>
+                <div class="arch-card">
+                    <h3>Energy Function</h3>
+                    <p>Measures prediction quality in representation space. L2, cosine, and
+                       smooth L1 distances are supported.</p>
+                    <code>crates/jepa-core/src/energy.rs → L2Energy</code>
+                </div>
+                <div class="arch-card">
+                    <h3>Collapse Regularizer</h3>
+                    <p>Prevents representation collapse via VICReg or Barlow Twins loss terms
+                       that encourage variance and decorrelation.</p>
+                    <code>crates/jepa-core/src/collapse.rs → VICReg</code>
+                </div>
+            </div>
+
+            <div class="data-flow">
+                <h3>Training Data Flow</h3>
+                <ol>
+                    <li><strong>Masking</strong>: BlockMasking generates context/target index split on the patch grid</li>
+                    <li><strong>Context encoding</strong>: Only visible patches enter the context encoder (strict pre-encoder masking)</li>
+                    <li><strong>Target encoding</strong>: Full image is encoded by the EMA target encoder (detached from gradient graph)</li>
+                    <li><strong>Prediction</strong>: Predictor uses context embeddings + target position tokens to predict target representations</li>
+                    <li><strong>Loss</strong>: Energy function (L2) + collapse regularizer (VICReg) compute the total loss</li>
+                    <li><strong>Update</strong>: AdamW optimizer steps the context encoder and predictor; EMA updates the target encoder</li>
+                </ol>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p>Powered by <a href="https://github.com/AbdelStark/jepa-rs" target="_blank">jepa-rs</a>
+           &amp; <a href="https://burn.dev" target="_blank">Burn</a> — 100% client-side computation</p>
+    </footer>
+
+    <script src="js/charts.js"></script>
+    <script src="js/canvas.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
