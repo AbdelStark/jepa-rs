@@ -1,0 +1,38 @@
+[package]
+name = "jepa-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WebGPU browser demo for jepa-rs — in-browser JEPA training and inference"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jepa-core = { path = "../jepa-core" }
+jepa-vision = { path = "../jepa-vision" }
+jepa-train = { path = "../jepa-train" }
+burn = { workspace = true }
+burn-wgpu = { workspace = true }
+burn-ndarray = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["console"] }
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+log = { workspace = true }
+
+[features]
+default = ["webgpu"]
+webgpu = []
+cpu-only = []
+
+[dev-dependencies]
+burn-ndarray = { workspace = true }
