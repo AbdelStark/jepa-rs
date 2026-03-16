@@ -15,7 +15,7 @@
 
 Alpha Rust implementation of **JEPA** (Joint Embedding Predictive Architecture) — the self-supervised learning framework from [Yann LeCun and Meta AI](https://openreview.net/pdf?id=BZ5a1r-kVsf) for learning world models that predict in representation space rather than pixel space.
 
-**jepa-rs** provides modular, backend-agnostic building blocks for I-JEPA (images), V-JEPA (video), C-JEPA (causal object-centric), and hierarchical world models, built on top of the [burn](https://burn.dev) deep learning framework. It includes a CLI and interactive TUI dashboard, safetensors checkpoint loading, ONNX metadata inspection, and a pretrained model registry for Facebook Research models.
+**jepa-rs** provides modular, backend-agnostic building blocks for I-JEPA (images), V-JEPA (video), C-JEPA (causal object-centric), and hierarchical world models, built on top of the [burn](https://burn.dev) deep learning framework. It includes a CLI, an interactive TUI dashboard, a browser demo crate for local experimentation, safetensors checkpoint loading, ONNX metadata inspection, and a pretrained model registry for Facebook Research models.
 
 ```
                     ┌──────────────┐
@@ -289,9 +289,14 @@ jepa-rs/
 │   ├── KeyMap            PyTorch → burn key remapping
 │   └── OnnxModelInfo     ONNX metadata inspection and initializer loading
 │
-└── jepa             CLI and interactive TUI dashboard
-    ├── CLI               models, inspect, checkpoint, train, encode commands
-    └── TUI               Dashboard, Models, Training, Checkpoint, About tabs
+├── jepa             CLI and interactive TUI dashboard
+│   ├── CLI               models, inspect, checkpoint, train, encode commands
+│   └── TUI               Dashboard, Models, Training, Inference, Checkpoint, About tabs
+│
+└── jepa-web         Browser demo crate
+    ├── WASM API          JS-callable training and inference helpers
+    ├── Demo UI           HTML, JS, and CSS assets for local browser demos
+    └── Backend status    CPU-backed path today; WebGPU scaffolding remains internal
 ```
 
 All tensor-bearing APIs are generic over `B: Backend`, allowing transparent execution on CPU (NdArray), GPU (WGPU), or WebAssembly backends.
@@ -316,6 +321,11 @@ jepa-rs provides ONNX metadata inspection and initializer loading through `jepa-
 | `ijepa_train_loop` | Training loop with metrics | `cargo run -p jepa-vision --example ijepa_train_loop` |
 | `world_model_planning` | World model with random shooting | `cargo run -p jepa-world --example world_model_planning` |
 | `model_registry` | Browse pretrained models (library) | `cargo run -p jepa-compat --example model_registry` |
+
+The browser demo lives in `crates/jepa-web`. Its exported WASM path currently
+uses the deterministic CPU backend for reliable local demos and tests; see the
+architecture and production-gap docs below before treating it as a WebGPU-ready
+surface.
 
 ## Build & Test
 
@@ -342,6 +352,7 @@ scripts/run_parity_suite.sh
 cargo test -p jepa-core
 cargo test -p jepa-vision
 cargo test -p jepa-compat
+cargo test -p jepa-web
 ```
 
 ### Extended quality gates
@@ -357,15 +368,28 @@ cargo llvm-cov --workspace --all-features --fail-under-lines 80
 cargo bench --workspace --no-run
 ```
 
+## Project Docs
+
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) - crate boundaries, data flow, and invariants
+- [docs/QUALITY_GATES.md](./docs/QUALITY_GATES.md) - exact local and release verification commands
+- [docs/RELEASE.md](./docs/RELEASE.md) - current release checklist and publish constraints
+- [docs/ROADMAP.md](./docs/ROADMAP.md) - next milestones with explicit exit criteria
+- [docs/PRODUCTION_GAPS.md](./docs/PRODUCTION_GAPS.md) - honest register of remaining blockers and risks
+
 ## Project Status
 
-**Alpha** — suitable for research, experimentation, and extension.
+As of **2026-03-16**, this project is **alpha**. It is suitable for research,
+local demos, and extension work; it is not yet suitable for unqualified
+production deployment of every advertised surface. In particular, strict video
+parity is still pending, ONNX graph execution remains a prototype path, and the
+browser demo uses the CPU-backed WASM path today.
 
 ### What works
 
 - Complete I-JEPA, V-JEPA, and C-JEPA architectures with strict masked-encoder paths
 - CLI with 6 commands (`models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`)
 - Interactive TUI dashboard with 6 tabs (Dashboard, Models, Training, Inference, Checkpoint, About)
+- Browser demo crate with deterministic CPU-backed WASM training and inference for local experimentation
 - SafeTensors checkpoint loading with automatic key remapping
 - ONNX metadata inspection and initializer loading
 - Pretrained model registry with download URLs
@@ -377,6 +401,7 @@ cargo bench --workspace --no-run
 
 - The generic trainer slices tokens after encoder forward; strict pre-attention masking is available via `IJepa::forward_step_strict` and `VJepa::forward_step_strict`
 - ONNX support covers metadata inspection and initializer loading only, not graph execution
+- The `jepa-web` crate keeps `burn-wgpu` scaffolding in-tree, but the exported browser demo currently runs on the `burn-ndarray` CPU backend only
 - Differential parity runs in CI for strict image fixtures; broader video parity is pending
 - First-time crates.io release must be published in dependency order because the workspace crates depend on each other by version
 

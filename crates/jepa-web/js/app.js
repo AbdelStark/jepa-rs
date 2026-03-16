@@ -1,4 +1,4 @@
-// app.js — Main UI orchestration for the jepa-rs WebGPU demo.
+// app.js — Main UI orchestration for the jepa-rs browser demo.
 
 // State
 let isTraining = false;

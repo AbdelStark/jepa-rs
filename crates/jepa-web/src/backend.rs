@@ -4,14 +4,15 @@
 //! - `WebBackend`: GPU-accelerated via `Autodiff<Wgpu>` (WebGPU)
 //! - `CpuBackend`: CPU fallback via `Autodiff<NdArray<f32>>`
 //!
-//! At runtime the demo detects WebGPU availability and selects the
-//! appropriate backend.
+//! The current exported demo uses `CpuBackend` for deterministic browser and
+//! test behavior. `WebBackend` remains available for future runtime-selection
+//! work once the WebGPU path is verified end to end.
 
 use burn::backend::Autodiff;
 use burn_ndarray::NdArray;
 use burn_wgpu::Wgpu;
 
-/// GPU-accelerated backend for WebGPU-capable browsers.
+/// GPU-accelerated backend kept for future WebGPU runtime selection.
 pub type WebBackend = Autodiff<Wgpu>;
 
 /// CPU fallback backend for browsers without WebGPU support.

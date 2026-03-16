@@ -4,6 +4,8 @@
 //! structure that can be created once and mutated across JS-driven training
 //! steps.
 
+use std::fmt;
+
 use burn::optim::AdamWConfig;
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +39,62 @@ pub struct TrainingConfig {
     pub reg_weight: f64,
 }
 
+/// Validation errors for browser training session configuration.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TrainingConfigError {
+    NonFiniteLearningRate(f64),
+    NonPositiveLearningRate(f64),
+    ZeroBatchSize,
+    ZeroTotalSteps,
+    WarmupExceedsTotal {
+        warmup_steps: usize,
+        total_steps: usize,
+    },
+    NonFiniteEmaMomentum(f64),
+    InvalidEmaMomentum(f64),
+    NonFiniteRegularizationWeight(f64),
+    NegativeRegularizationWeight(f64),
+}
+
+impl fmt::Display for TrainingConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonFiniteLearningRate(value) => {
+                write!(f, "learning_rate must be finite, got {value}")
+            }
+            Self::NonPositiveLearningRate(value) => {
+                write!(f, "learning_rate must be > 0, got {value}")
+            }
+            Self::ZeroBatchSize => write!(f, "batch_size must be > 0"),
+            Self::ZeroTotalSteps => write!(f, "total_steps must be > 0"),
+            Self::WarmupExceedsTotal {
+                warmup_steps,
+                total_steps,
+            } => write!(
+                f,
+                "warmup_steps ({warmup_steps}) must be <= total_steps ({total_steps})"
+            ),
+            Self::NonFiniteEmaMomentum(value) => {
+                write!(f, "ema_momentum must be finite, got {value}")
+            }
+            Self::InvalidEmaMomentum(value) => {
+                write!(
+                    f,
+                    "ema_momentum must be between 0.0 and 1.0 inclusive, got {value}"
+                )
+            }
+            Self::NonFiniteRegularizationWeight(value) => {
+                write!(f, "reg_weight must be finite, got {value}")
+            }
+            Self::NegativeRegularizationWeight(value) => {
+                write!(f, "reg_weight must be >= 0, got {value}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TrainingConfigError {}
+
 impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
@@ -47,6 +105,52 @@ impl Default for TrainingConfig {
             ema_momentum: 0.996,
             reg_weight: 1.0,
         }
+    }
+}
+
+impl TrainingConfig {
+    /// Validate the browser-visible config before building model state.
+    pub fn validate(&self) -> Result<(), TrainingConfigError> {
+        if !self.learning_rate.is_finite() {
+            return Err(TrainingConfigError::NonFiniteLearningRate(
+                self.learning_rate,
+            ));
+        }
+        if self.learning_rate <= 0.0 {
+            return Err(TrainingConfigError::NonPositiveLearningRate(
+                self.learning_rate,
+            ));
+        }
+        if self.batch_size == 0 {
+            return Err(TrainingConfigError::ZeroBatchSize);
+        }
+        if self.total_steps == 0 {
+            return Err(TrainingConfigError::ZeroTotalSteps);
+        }
+        if self.warmup_steps > self.total_steps {
+            return Err(TrainingConfigError::WarmupExceedsTotal {
+                warmup_steps: self.warmup_steps,
+                total_steps: self.total_steps,
+            });
+        }
+        if !self.ema_momentum.is_finite() {
+            return Err(TrainingConfigError::NonFiniteEmaMomentum(self.ema_momentum));
+        }
+        if !(0.0..=1.0).contains(&self.ema_momentum) {
+            return Err(TrainingConfigError::InvalidEmaMomentum(self.ema_momentum));
+        }
+        if !self.reg_weight.is_finite() {
+            return Err(TrainingConfigError::NonFiniteRegularizationWeight(
+                self.reg_weight,
+            ));
+        }
+        if self.reg_weight < 0.0 {
+            return Err(TrainingConfigError::NegativeRegularizationWeight(
+                self.reg_weight,
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -94,6 +198,15 @@ pub struct TrainingState {
 /// Create a `VitConfig` for the tiny test preset (used for browser training).
 pub fn tiny_vit_config() -> VitConfig {
     VitConfig::tiny_test()
+}
+
+/// Build an I-JEPA model and all training state from a validated config.
+pub fn try_init_training_state(
+    config: TrainingConfig,
+    device: &burn_ndarray::NdArrayDevice,
+) -> Result<TrainingState, TrainingConfigError> {
+    config.validate()?;
+    Ok(init_training_state(config, device))
 }
 
 /// Build an I-JEPA model and all training state from a config.

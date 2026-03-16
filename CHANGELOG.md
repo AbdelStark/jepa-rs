@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **jepa-web**: Browser-session creation now validates config invariants, inference rejects shape mismatches explicitly, and the step API refuses calls past the configured total step count
+- README, CONTRIBUTING, and `CLAUDE.md` now describe the real 7-crate workspace, current browser-demo status, and the added operator runbooks
 - **jepa-core**: `Representation::gather` now uses indexed selection and preserves representation masks instead of dropping them silently
 - **jepa-train**: `JepaComponents::forward_step` now validates generated masks and passes real target indices to predictors
 - **jepa-train**: Generic `JepaComponents::forward_step` docs now explicitly call out its approximate masking semantics and point callers to strict vision helpers
@@ -25,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **jepa-compat**: `CJepa` variant in `ModelFamily` registry enum
 - **jepa**: `--masking object` CLI flag and `--family cjepa` model filter for C-JEPA workflows
 - **jepa**: CLI binary with 6 subcommands (`models`, `inspect`, `checkpoint`, `train`, `encode`, `tui`)
-- **jepa**: Interactive TUI dashboard with 5 tabs (Dashboard, Models, Training, Checkpoint, About) using ratatui and Catppuccin Mocha theme
+- **jepa**: Interactive TUI dashboard with 6 tabs (Dashboard, Models, Training, Inference, Checkpoint, About) using ratatui and Catppuccin Mocha theme
 - **jepa-vision**: Strict masked image and video forward paths with no-leakage regression coverage
 - **jepa-vision**: Criterion coverage for strict `IJepa::forward_step_strict` in the maintained vision benchmark surface
 - **jepa-world**: `try_new`, `try_push`, `try_total_cost`, and `try_plan` runtime-validation helpers for caller-triggerable failure modes
@@ -36,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage, fuzz, and benchmark-smoke CI jobs
 - ADR-0001 for strict masked encoder semantics
 - Quality-gate and release-process runbooks under `docs/`
+- Architecture, roadmap, and production-gap runbooks under `docs/`
 - **jepa-core**: Core traits (`Encoder`, `Predictor`, `EnergyFn`, `MaskingStrategy`, `CollapseRegularizer`) — RFC-001 through RFC-007
 - **jepa-core**: Energy functions: `L2Energy`, `CosineEnergy`, `SmoothL1Energy` — RFC-004
 - **jepa-core**: Masking strategies: `BlockMasking`, `SpatiotemporalMasking`, `MultiBlockMasking` — RFC-005

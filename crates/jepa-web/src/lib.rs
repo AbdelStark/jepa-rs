@@ -1,11 +1,13 @@
 #![recursion_limit = "256"]
 //! # jepa-web
 //!
-//! WebGPU browser demo for jepa-rs.
+//! Browser demo for jepa-rs.
 //!
-//! Provides a complete in-browser JEPA training and inference experience
-//! using `burn-wgpu` (WebGPU) with CPU fallback via `burn-ndarray`. All
-//! computation runs client-side with zero server dependencies.
+//! Provides an in-browser JEPA training and inference experience. The current
+//! exported WASM API runs on the deterministic `burn-ndarray` CPU backend so
+//! the demo works reliably in tests and local browser runs. `burn-wgpu`
+//! integration remains scaffolded in the crate for future runtime selection
+//! work once that path is validated end to end.
 //!
 //! ## Architecture
 //!
@@ -47,14 +49,16 @@ thread_local! {
     static TRAINING_STATE: RefCell<Option<TrainingState>> = const { RefCell::new(None) };
 }
 
-/// Helper: run a closure with a mutable reference to the training state.
-fn with_state_mut<T>(f: impl FnOnce(&mut TrainingState) -> T) -> Result<T, String> {
+/// Helper: run a fallible closure with a mutable reference to the training state.
+fn with_state_mut_result<T>(
+    f: impl FnOnce(&mut TrainingState) -> Result<T, String>,
+) -> Result<T, String> {
     TRAINING_STATE.with(|cell| {
         let mut borrow = cell.borrow_mut();
         let state = borrow.as_mut().ok_or_else(|| {
-            "no training session — call create_training_session first".to_string()
+            "no training session - call create_training_session first".to_string()
         })?;
-        Ok(f(state))
+        f(state)
     })
 }
 
@@ -92,7 +96,8 @@ pub fn create_training_session(config_json: &str) -> Result<String, String> {
     let config: TrainingConfig =
         serde_json::from_str(config_json).map_err(|e| format!("invalid config: {e}"))?;
 
-    let training_state = state::init_training_state(config, &CPU_DEVICE);
+    let training_state =
+        state::try_init_training_state(config, &CPU_DEVICE).map_err(|e| e.to_string())?;
     let info = model_info_from_state(&training_state);
 
     TRAINING_STATE.with(|cell| {
@@ -111,7 +116,16 @@ pub fn create_training_session(config_json: &str) -> Result<String, String> {
 /// Returns an error if no training session has been created.
 #[wasm_bindgen]
 pub fn training_step() -> Result<String, String> {
-    let metrics = with_state_mut(training::train_step)?;
+    let metrics = with_state_mut_result(|state| {
+        if state.current_step >= state.config.total_steps {
+            return Err(format!(
+                "training already completed at step {} of {}",
+                state.current_step, state.config.total_steps
+            ));
+        }
+
+        Ok(training::train_step(state))
+    })?;
     serde_json::to_string(&metrics).map_err(|e| format!("serialization error: {e}"))
 }
 
@@ -176,6 +190,8 @@ pub fn run_inference_on_data(
     let pixel_vec = pixel_data.to_vec();
 
     with_state(|state| {
+        validate_inference_shape(state, channels, height, width)?;
+
         let input = burn::tensor::Tensor::<CpuBackend, 4>::from_floats(
             burn::tensor::TensorData::new(pixel_vec, [1, channels, height, width]),
             &CPU_DEVICE,
@@ -257,6 +273,23 @@ fn model_info_from_state(state: &TrainingState) -> ModelInfo {
     }
 }
 
+fn validate_inference_shape(
+    state: &TrainingState,
+    channels: usize,
+    height: usize,
+    width: usize,
+) -> Result<(), String> {
+    let vit = &state.vit_config;
+    if channels != vit.in_channels || height != vit.image_height || width != vit.image_width {
+        return Err(format!(
+            "input shape [{channels}, {height}, {width}] does not match model expectation [{}, {}, {}]",
+            vit.in_channels, vit.image_height, vit.image_width
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,6 +320,18 @@ mod tests {
         let metrics: StepMetrics = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(metrics.step, 0);
         assert!(metrics.total_loss.is_finite());
+    }
+
+    #[test]
+    fn test_create_training_session_rejects_invalid_config() {
+        let config = TrainingConfig {
+            total_steps: 4,
+            warmup_steps: 5,
+            ..TrainingConfig::default()
+        };
+        let config_json = serde_json::to_string(&config).unwrap();
+        let result = create_training_session(&config_json);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -354,6 +399,22 @@ mod tests {
     }
 
     #[test]
+    fn test_training_step_rejects_after_total_steps() {
+        let config = TrainingConfig {
+            total_steps: 1,
+            warmup_steps: 0,
+            batch_size: 1,
+            ..TrainingConfig::default()
+        };
+        let config_json = serde_json::to_string(&config).unwrap();
+        create_training_session(&config_json).unwrap();
+
+        training_step().unwrap();
+        let result = training_step();
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_reset_training() {
         let config = TrainingConfig {
             total_steps: 5,
@@ -391,6 +452,17 @@ mod tests {
 
         let pixels = vec![0.5f32; 10];
         let result = run_inference_on_data(&pixels, 1, 8, 8);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_inference_on_data_wrong_dimensions_errors() {
+        let config = TrainingConfig::default();
+        let config_json = serde_json::to_string(&config).unwrap();
+        create_training_session(&config_json).unwrap();
+
+        let pixels = vec![0.5f32; 16];
+        let result = run_inference_on_data(&pixels, 1, 4, 4);
         assert!(result.is_err());
     }
 }

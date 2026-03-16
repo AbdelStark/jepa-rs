@@ -14,19 +14,21 @@ cargo test
 ## Development Workflow
 
 1. **Build**: `cargo build`
-2. **Test**: `cargo test`
-3. **Lint**: `cargo clippy --workspace --all-targets -- -D warnings`
-4. **Format**: `cargo fmt` (check with `cargo fmt -- --check`)
-5. **Docs**: `cargo doc --workspace --no-deps`
-6. **Coverage**: `cargo llvm-cov --workspace --all-features --fail-under-lines 80`
-7. **Fuzz smoke**: run the commands from [`docs/QUALITY_GATES.md`](./docs/QUALITY_GATES.md)
-8. **Bench smoke**: `cargo bench --workspace --no-run`
+2. **Workspace check**: `cargo check --workspace --all-targets`
+3. **Test**: `cargo test --workspace`
+4. **Targeted browser-demo test**: `cargo test -p jepa-web` when touching `crates/jepa-web`
+5. **Lint**: `cargo clippy --workspace --all-targets -- -D warnings`
+6. **Format**: `cargo fmt` (check with `cargo fmt -- --check`)
+7. **Docs**: `cargo doc --workspace --no-deps`
+8. **Coverage**: `cargo llvm-cov --workspace --all-features --fail-under-lines 80`
+9. **Fuzz smoke**: run the commands from [`docs/QUALITY_GATES.md`](./docs/QUALITY_GATES.md)
+10. **Bench smoke**: `cargo bench --workspace --no-run`
 
 All release-blocking checks must pass before submitting a PR.
 
 ## Architecture
 
-The project is organized as a Cargo workspace with 6 crates:
+The project is organized as a Cargo workspace with 7 crates:
 
 | Crate | Purpose |
 |-------|---------|
@@ -36,6 +38,7 @@ The project is organized as a Cargo workspace with 6 crates:
 | `jepa-train` | Training loop, LR schedulers, checkpointing |
 | `jepa-compat` | PyTorch/safetensors weight loading, ONNX metadata inspection |
 | `jepa` | CLI binary and interactive TUI dashboard |
+| `jepa-web` | Browser demo crate; exported WASM path uses the CPU backend today |
 
 All crates depend on `jepa-core`. There are no circular dependencies.
 
@@ -59,13 +62,15 @@ All crates depend on `jepa-core`. There are no circular dependencies.
 Format: `type(scope): description`
 
 - **Types**: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
-- **Scopes**: `core`, `vision`, `world`, `train`, `compat`, `cli`, `specs`
+- **Scopes**: `core`, `vision`, `world`, `train`, `compat`, `cli`, `web`, `docs`, `specs`
 - Example: `feat(core): implement EnergyFn trait with L2 and cosine variants`
 
 ## Reference
 
-- [SPECIFICATION.md](./SPECIFICATION.md) — RFC archive (read-only, source of truth)
 - [CHANGELOG.md](./CHANGELOG.md) — Version history
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — System layout, invariants, and boundaries
 - [docs/QUALITY_GATES.md](./docs/QUALITY_GATES.md) — Verification runbook
 - [docs/RELEASE.md](./docs/RELEASE.md) — Release checklist and policy
-- [specs/gherkin/features.feature](./specs/gherkin/features.feature) — BDD scenarios
+- [docs/ROADMAP.md](./docs/ROADMAP.md) — Next milestones and exit criteria
+- [docs/PRODUCTION_GAPS.md](./docs/PRODUCTION_GAPS.md) — Remaining blockers and risks
+- [docs/agentic/project-decisions.md](./docs/agentic/project-decisions.md) — Durable architectural decisions

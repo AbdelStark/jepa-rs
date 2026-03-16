@@ -12,3 +12,4 @@ Entries:
 - `2026-03-14`: burn 0.20.1 does not expose `nn::GruCell` — implement GRU gate equations manually with Linear layers and sigmoid/tanh activations when needed (e.g. slot attention refinement).
 - `2026-03-14`: `Tensor::squeeze::<N>(dim)` in burn 0.20 takes zero arguments — use `.reshape([...])` with explicit dimensions instead of squeeze for rank reduction.
 - `2026-03-14`: When adding new enum variants to `ValueEnum`-derived CLI enums, search for all match statements on that enum across the crate — missing arms cause compile errors in command handlers, not just in the enum definition file.
+- `2026-03-16`: Validate browser-visible config and tensor shapes at the WASM boundary — otherwise malformed JS input reaches deep tensor reshape and encoder code, turning a caller error into an opaque runtime failure.

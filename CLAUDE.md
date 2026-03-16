@@ -1,5 +1,5 @@
 <identity>
-jepa-rs is a Rust Cargo workspace for JEPA primitives, strict image and video reference paths, checkpoint and ONNX interoperability, and a CLI/TUI built on burn.
+jepa-rs is a Rust Cargo workspace for JEPA primitives, strict image and video reference paths, checkpoint and ONNX interoperability, plus CLI/TUI and browser demo surfaces built on burn.
 </identity>
 
 <stack>
@@ -8,7 +8,7 @@ jepa-rs is a Rust Cargo workspace for JEPA primitives, strict image and video re
 |-------|------------|---------|-------|
 | Runtime | Rust toolchain | stable, MSRV 1.85 | CI uses stable; nightly only for `fuzz/` |
 | Language | Rust | 2021 edition | `rust-version = 1.85` in workspace manifests |
-| Workspace | Cargo workspace | resolver 2 | 6 member crates plus nested fuzz workspace |
+| Workspace | Cargo workspace | resolver 2 | 7 member crates plus nested fuzz workspace |
 | ML framework | burn | 0.20.1 | `autodiff` enabled workspace-wide |
 | CPU backend | burn-ndarray | 0.20.1 | Default test and demo backend |
 | GPU/WebGPU backend | burn-wgpu | 0.20.1 | Present as workspace dependency |
@@ -32,7 +32,8 @@ crates/
 ├── jepa-train/     # Generic training orchestration and schedules [agent: create/modify]
 ├── jepa-world/     # Planning, memory, hierarchical world-model helpers [agent: create/modify]
 ├── jepa-compat/    # safetensors, key mapping, ONNX metadata/runtime [agent: create/modify]
-└── jepa/           # CLI binary, demos, and ratatui dashboard [agent: create/modify]
+├── jepa/           # CLI binary, demos, and ratatui dashboard [agent: create/modify]
+└── jepa-web/       # Browser demo crate with JS assets and WASM exports [agent: create/modify]
 .github/workflows/  # CI gates and release smoke checks [agent: gated]
 docs/               # Project docs [agent: create/modify]
 docs/agentic/       # Living agent memory: decisions and lessons learned [agent: create/modify]
@@ -43,6 +44,11 @@ target/             # Generated build outputs and demo artifacts [agent: never e
 README.md           # Public project overview [agent: create/modify]
 CONTRIBUTING.md     # Dev workflow and commit convention [agent: create/modify]
 CHANGELOG.md        # Release history [agent: create/modify]
+docs/ARCHITECTURE.md    # Architecture map, invariants, and boundary notes [agent: create/modify]
+docs/QUALITY_GATES.md   # Exact verification commands and escalation notes [agent: create/modify]
+docs/RELEASE.md         # Release checklist and current publish constraints [agent: create/modify]
+docs/ROADMAP.md         # Near-term milestones with exit criteria [agent: create/modify]
+docs/PRODUCTION_GAPS.md # Honest blocker register for production readiness [agent: create/modify]
 Cargo.toml          # Workspace membership and shared dependency versions [agent: gated]
 Cargo.lock          # Locked dependency graph [agent: gated]
 ```
@@ -51,6 +57,7 @@ Module boundaries:
 - `jepa-core` is the contract layer. All library crates depend on it.
 - `jepa-vision`, `jepa-train`, `jepa-world`, and `jepa-compat` are library layers on top of `jepa-core`.
 - `crates/jepa` is the only binary crate and depends on all other workspace crates.
+- `crates/jepa-web` is a browser demo crate that reuses the model crates; the exported path currently runs on the CPU-backed WASM backend and keeps the WebGPU path internal.
 - `fuzz/` is not a normal workspace member. Treat it as a separate nightly-only validation surface.
 </structure>
 
@@ -64,6 +71,7 @@ Module boundaries:
 | Vision tests | `cargo test -p jepa-vision` | Includes strict-path unit tests |
 | Compat tests | `cargo test -p jepa-compat` | safetensors, ONNX, keymap coverage |
 | CLI/TUI tests | `cargo test -p jepa` | Clap parsing and demo helpers |
+| Browser demo tests | `cargo test -p jepa-web` | WASM-facing config and inference boundary coverage |
 | Clippy | `cargo clippy --workspace --all-targets -- -D warnings` | Warnings are errors in CI |
 | Format check | `cargo fmt -- --check` | Use `cargo fmt` only to apply formatting |
 | Strict parity | `scripts/run_parity_suite.sh` | Runs all bundled strict image fixtures |
@@ -76,7 +84,7 @@ CI also runs additional gates from `.github/workflows/ci.yml`: `cargo doc --no-d
     Files and modules use `snake_case`. Types use `PascalCase`. Constants use `SCREAMING_SNAKE_CASE`.
     Keep public tensor-bearing APIs generic over `B: Backend`.
     Prefer semantic wrappers such as `Representation<B>`, `Energy<B>`, and `Action<B>` over raw public `Tensor` types when a wrapper already exists.
-    Library crates use typed `thiserror` enums. CLI and TUI code in `crates/jepa` uses `anyhow::Result` plus `.context(...)`.
+    Library crates use typed `thiserror` enums. CLI and TUI code in `crates/jepa` uses `anyhow::Result` plus `.context(...)`. `crates/jepa-web` validates via typed internal errors and maps them to string errors at the WASM boundary.
     Tests live in `#[cfg(test)] mod tests` at the bottom of the owning file and use `burn_ndarray::NdArray<f32>` on CPU unless a test proves otherwise.
     Let `rustfmt` own import ordering. Prefer `use crate::...` inside a crate and explicit crate names across crates.
   </code_style>
@@ -100,7 +108,7 @@ CI also runs additional gates from `.github/workflows/ci.yml`: `cargo doc --no-d
 
   <commit_conventions>
     Format commits as `type(scope): description`.
-    Allowed scopes in `CONTRIBUTING.md`: `core`, `vision`, `world`, `train`, `compat`, `cli`, `specs`.
+    Allowed scopes in `CONTRIBUTING.md`: `core`, `vision`, `world`, `train`, `compat`, `cli`, `web`, `docs`, `specs`.
   </commit_conventions>
 </conventions>
 
@@ -137,7 +145,7 @@ CI also runs additional gates from `.github/workflows/ci.yml`: `cargo doc --no-d
 
 | Zone | Paths | Rule |
 |------|-------|------|
-| Autonomous | `crates/jepa-vision/src/`, `crates/jepa-train/src/`, `crates/jepa-world/src/`, `crates/jepa-compat/src/`, `crates/jepa/src/`, `crates/*/examples/`, `crates/*/benches/`, `docs/`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `fuzz/fuzz_targets/`, `.codex/skills/` | Agent may create and modify freely, then run local verification |
+| Autonomous | `crates/jepa-vision/src/`, `crates/jepa-train/src/`, `crates/jepa-world/src/`, `crates/jepa-compat/src/`, `crates/jepa/src/`, `crates/jepa-web/src/`, `crates/jepa-web/js/`, `crates/jepa-web/assets/`, `crates/jepa-web/index.html`, `crates/*/examples/`, `crates/*/benches/`, `docs/`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `fuzz/fuzz_targets/`, `.codex/skills/` | Agent may create and modify freely, then run local verification |
 | Gated | `Cargo.toml`, `Cargo.lock`, `crates/*/Cargo.toml`, `fuzz/Cargo.toml`, `.github/workflows/`, `scripts/`, `specs/differential/`, `crates/jepa-core/src/lib.rs`, `crates/jepa-core/src/encoder.rs`, `crates/jepa-core/src/predictor.rs`, `crates/jepa-core/src/energy.rs`, `crates/jepa-core/src/masking.rs`, `crates/jepa-core/src/collapse.rs`, `crates/jepa-core/src/types.rs` | Read freely. Ask before editing |
 | Forbidden | `.env`, `.env.*`, `.git/`, `target/`, `fuzz/target/` | Never read or modify secrets or generated internals |
 
@@ -161,6 +169,8 @@ CI also runs additional gates from `.github/workflows/ci.yml`: `cargo doc --no-d
 | `test_ijepa_strict_fixture_parity` appears ignored | The parity test is intentionally gated behind the fixture runner | Run `scripts/run_parity_suite.sh` from repo root |
 | `failed to inject weights from ...` | safetensors checkpoint shape or key mapping does not match the chosen preset | Use the matching `VitConfig` preset and `ijepa_vit_keymap()` path |
 | `expected Tensor<_, 3> found Tensor<_, 2>` | A `reshape`, `sum`, or `squeeze` changed rank unexpectedly | Inspect intermediate dims and restore `[batch, seq, embed]` shape |
+| `input shape [...] does not match model expectation [...]` in `jepa-web` | Browser inference pixels were resized or reshaped to the wrong model dimensions | Resize to the active `tiny_test` model shape (`1x8x8`) before calling `run_inference_on_data` |
+| `training already completed at step ...` in `jepa-web` | The UI or caller kept invoking the step API after the configured run finished | Create or reset the training session before resuming |
 | `Blocking waiting for file lock on build directory` | Multiple cargo jobs are sharing the same checkout | Serialize cargo commands or wait for the competing job to finish |
 
   </known_issues>
